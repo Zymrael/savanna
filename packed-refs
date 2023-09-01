@@ -1,0 +1,4 @@
+# pack-refs with: peeled fully-peeled sorted 
+77b212cfde857c9eede99da3f0540c4c5444d7c2 refs/remotes/origin/fftconv_rewrite
+5c0ec3fcd5cf5664898022a2ee9f67b1e79bd202 refs/remotes/origin/kernel
+2bb1ff11ef4534d3812d831eb77ace8e66d26492 refs/remotes/origin/summit-neox-v2.0

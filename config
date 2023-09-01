@@ -1,0 +1,11 @@
+[core]
+	repositoryformatversion = 0
+	filemode = true
+	bare = false
+	logallrefupdates = true
+[remote "origin"]
+	url = https://github.com/HazyResearch/safari-neox.git
+	fetch = +refs/heads/*:refs/remotes/origin/*
+[branch "summit-neox-v2.0"]
+	remote = origin
+	merge = refs/heads/summit-neox-v2.0

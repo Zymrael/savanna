@@ -1,0 +1,25 @@
+{
+  "train-data-paths": [
+    "/var/cr01_data/tokenized_data/arxiv/arxiv_tokenized_text_document",
+    "/var/cr01_data/tokenized_data/book/book_tokenized_text_document",
+    "/var/cr01_data/tokenized_data/c4/c4_tokenized_text_document",
+    "/var/cr01_data/tokenized_data/cc/2023-06/tokenized_text_document",
+    "/var/cr01_data/tokenized_data/github_md/tokenized_text_document",
+    "/var/cr01_data/tokenized_data/stackexchange/tokenized_text_document",
+    "/var/cr01_data/tokenized_data/wikipedia/wiki_full_tokenized_text_document",
+  ],
+  "test-data-paths": ["/var/cr01_data/mpoli_data/mpoli_data/pile_test/pile_test_text_HFTokenizer_document"],
+  "valid-data-paths": ["/var/cr01_data/mpoli_data/mpoli_data/pile_validation/pile_validation_text_HFTokenizer_document"],
+  "train-data-weights": [ 3.6, 17.4, 42.0, 26.6, 2.6, 4.1, 3.7],
+  "test-data-weights": [
+    1.
+  ],
+  "valid-data-weights": [
+    1.
+  ],
+  "tokenizer-type": "HFTokenizer",
+  "vocab-file": "/var/cr01_data/mpoli_data/20B_tokenizer.json",
+  "use_wandb": True,
+  "wandb_host": "https://api.wandb.ai",
+  "wandb_project": "hyena-neox"
+}

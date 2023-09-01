@@ -1,0 +1,13 @@
+{
+  "train-data-paths": ["/var/cr01_data/mpoli_data/mpoli_data/pile/pile_text_document"],
+  "test-data-paths": ["/var/cr01_data/mpoli_data/mpoli_data/pile_test/pile_test_text_document"],
+  "valid-data-paths": ["/var/cr01_data/mpoli_data/mpoli_data/pile_validation/pile_validation_text_document"],
+  "test-data-weights": [1.],
+  "valid-data-weights": [1.],
+  "vocab-file": "/var/cr01_data/mpoli_data/mpoli_data/gpt2-vocab.json",
+  "merge-file": "/var/cr01_data/mpoli_data/mpoli_data/gpt2-merges.txt",
+  "checkpoint_validation_with_forward_pass": False,
+  "use_wandb": True,
+  "wandb_host": "https://api.wandb.ai",
+  "wandb_project": "hyena-neox"
+}

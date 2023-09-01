@@ -1,0 +1,13 @@
+{
+  "train-data-paths": ["/pfss/llm/pile/train/pile_text_HFTokenizer_document"],
+  "test-data-paths": ["/pfss/llm/pile/pile_test/pile_test_text_HFTokenizer_document"],
+  "valid-data-paths": ["/pfss/llm/pile/pile_validation/pile_validation_text_HFTokenizer_document"],
+  "test-data-weights": [1.],
+  "valid-data-weights": [1.],
+  "tokenizer-type": "HFTokenizer",
+  "vocab-file": "/pfss/llm/20B_tokenizer.json",
+  "checkpoint_validation_with_forward_pass": False,
+  "use_wandb": True,
+  "wandb_host": "https://api.wandb.ai",
+  "wandb_project": "hessian-hyena"
+}
