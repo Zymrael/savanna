@@ -4,7 +4,6 @@ import multiprocessing
 import os
 import sys
 
-import lm_dataformat as lmd
 import numpy as np
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.path.pardir)))
@@ -12,6 +11,19 @@ import time
 import tqdm
 import torch
 import ftfy
+
+import zstandard
+import ujson as json
+import time
+from functools import reduce
+import jsonlines
+import io
+from zipfile import ZipFile
+import gzip
+from math import ceil
+import mmap
+import multiprocessing as mp
+from pathlib import Path
 
 from savanna.tokenizer import build_tokenizer
 from savanna.data import indexed_dataset
@@ -141,6 +153,174 @@ def get_args():
     return args
 
 
+
+########################################################################################
+# Reader and utilities from https://github.dev/leogao2/lm_dataformat
+########################################################################################
+
+VALID_EXTENSIONS = ['openwebtext.tar.xz', '_data.xz', '.dat.zst', '.jsonl', '.jsonl.zst', '.jsonl.zst.tar', '.json.zst', '.txt', '.zip', '.tar.gz', '.json.gz', '.gz']
+
+def has_valid_extension(file):
+    return any([file.endswith(ext) for ext in VALID_EXTENSIONS])
+
+
+def _listdir_or_file(x):
+    if isinstance(x, list):
+        return reduce(lambda x, y: x + y, map(listdir_or_file, sorted(x)))
+    if os.path.isfile(x):
+        return [x]
+    elif os.path.isdir(x):
+        return [str(Path(x) / fn) for fn in sorted(os.listdir(x))]
+    else:
+        raise FileNotFoundError(f"{x} not found")
+
+def listdir_or_file(x):
+    return list(filter(has_valid_extension, _listdir_or_file(x)))
+
+
+def handle_jsonl(jsonl_reader, get_meta, autojoin_paragraphs, para_joiner, key='text'):
+    for ob in jsonl_reader:
+        # naive jsonl where each object is just the string itself, with no meta. For legacy compatibility.
+        if isinstance(ob, str):
+            assert not get_meta
+            yield ob
+            continue
+
+        text = ob[key]
+
+        if autojoin_paragraphs and isinstance(text, list):
+            text = para_joiner.join(text)
+
+        if get_meta:
+            yield text, (ob['meta'] if 'meta' in ob else {})
+        else:
+            yield text
+
+
+class Reader:
+    def __init__(self, in_path):
+        self.in_path = in_path
+    
+    def stream_data(self, get_meta=False, threaded=False):
+        if not threaded:
+            yield from self._stream_data(get_meta)
+            return
+
+        q = mp.Queue(1000)
+        p = mp.Process(target=self._stream_data_threaded, args=(q, get_meta))
+        p.start()
+        while p.is_alive():
+            res = q.get()
+            if res is None: break
+            yield res
+    
+    def _stream_data_threaded(self, q, get_meta=False):
+        for data in self._stream_data(get_meta):
+            q.put(data)
+        q.put(None)
+
+    def _stream_data(self, get_meta=False, jsonl_key="text"):
+        self.f_name = ""
+        files = listdir_or_file(self.in_path)
+        if not files:
+            raise FileNotFoundError(f"No valid file(s) found in {self.in_path}")
+        for f in files:
+            self.f_name = f
+            if f == 'openwebtext.tar.xz':
+                assert not get_meta
+
+                yield from self.read_owt(f)
+            elif 'urlsf_subset' in f and f.endswith('_data.xz'):
+                assert not get_meta
+
+                yield from self.read_owt_subset(f)
+            elif f.endswith('.dat.zst'):
+                assert not get_meta
+
+                yield from self.read_dat(f)
+            elif f.endswith('.jsonl'):
+                yield from self.read_jsonl(f, get_meta, key=jsonl_key)
+            elif f.endswith('.jsonl.zst'):
+                yield from self.read_jsonl_zst(f, get_meta, key=jsonl_key)
+            elif f.endswith('.json.zst'):
+                assert not get_meta
+
+                yield from self.read_json(f)
+            elif f.endswith('.txt'):
+                assert not get_meta
+                
+                yield from self.read_txt(f)
+            elif f.endswith('.zip'):
+                assert not get_meta
+
+                yield from self.read_zip(f)
+            elif f.endswith('.tar.gz'):
+                assert not get_meta
+
+                yield from self.read_tgz(f)
+            elif f.endswith('.json.gz'):
+                assert not get_meta
+                
+                yield from self.read_jsongz(f)
+            elif f.endswith('.gz'):
+                assert not get_meta
+               
+                yield from self.read_gz(f)
+            else:
+                # shouldn't be reached
+                print(f'Skipping {f} as streaming for that filetype is not implemented')
+
+    def read_txt(self, file):
+        with open(file, 'r') as fh:
+            yield fh.read()
+
+    def read_zip(self, file):
+        archive = ZipFile(file, 'r')
+        for f in archive.namelist():
+            yield archive.read(f).decode('UTF-8')
+
+    def read_gz(self, file): 
+        with gzip.open(file, 'rb') as f:
+            for line in f:
+                yield line.decode('utf-8')
+                
+    def read_jsongz(self, file): 
+        for line in self.read_gz(file):
+            yield json.loads(line)
+                
+    def read_json(self, file):
+        with open(file, 'rb') as fh:
+            cctx = zstandard.ZstdDecompressor()
+            reader = cctx.stream_reader(fh)
+            ob = json.load(reader)
+            yield from ob
+
+    def read_dat(self, file):
+        with open(file, 'rb') as fh:
+            cctx = zstandard.ZstdDecompressor()
+            reader = cctx.stream_reader(fh)
+            while True:
+                ln = reader.read(16).decode('UTF-8')
+                if not ln:
+                    break
+
+                ln = int(ln)
+
+                yield reader.read(ln).decode('UTF-8')
+
+    def read_jsonl(self, file, get_meta=False, autojoin_paragraphs=True, para_joiner='\n\n', key='text'):
+        with jsonlines.open(file) as rdr:
+            yield from handle_jsonl(rdr, get_meta, autojoin_paragraphs, para_joiner, key)
+            
+    def read_jsonl_zst(self, file, get_meta=False, autojoin_paragraphs=True, para_joiner='\n\n', key='text'):
+        with open(file, 'rb') as fh:
+            cctx = zstandard.ZstdDecompressor()
+            reader = io.BufferedReader(cctx.stream_reader(fh))
+            rdr = jsonlines.Reader(reader)
+            yield from handle_jsonl(rdr, get_meta, autojoin_paragraphs, para_joiner, key)
+
+
+
 def yield_from_files(fnames: list, semaphore):
     """
     Iterator over input documents using lm_dataformat. Should be able to handle jsons / texts /
@@ -150,7 +330,7 @@ def yield_from_files(fnames: list, semaphore):
     """
 
     def yielder(fname, semaphore):
-        for f in filter(lambda x: x, lmd.Reader(fname).stream_data()):
+        for f in filter(lambda x: x, Reader(fname).stream_data()):
             semaphore.acquire()
             yield f
 
