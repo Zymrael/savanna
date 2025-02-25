@@ -13,7 +13,7 @@ Savanna is an open source pretraining framework for alternative architectures. I
 * [TransformerEngine](https://github.com/NVIDIA/TransformerEngine): FP8 support
 
 It extends these projects with additional features, including:
-* Multi-hybrid model support (StripedHyena, StripedHyena 2)
+* multi-hybrid model support (StripedHyena, StripedHyena 2)
 * byte-level tokenization and training
 * tuner for distributed hyperparameters
 * a2a and p2p context parallelism
