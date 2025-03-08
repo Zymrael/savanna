@@ -1,0 +1,103 @@
+{
+   "pipe_parallel_size": 1,
+   "model_parallel_size": 1,
+   ############### model settings
+   "num_layers": 28,
+   "hidden_size": 2048,
+   "operator_config": [[["hyena"], 28]],
+   "short_conv_L": 3,
+   "postnorm": False,
+   "use_fast_heads": False,
+   "output_layer_parallelism": "column",
+   "identity_mlp": False,
+   "prenorm": True,
+   "pos_emb": None,
+   "num_heads": 512, # hidden-size / num_heads unique filters
+   "num_attention_heads": 512, # nb: this is only used for mpu with vanilla Hyena, no heads to split
+   "use_slow_heads": true,
+   "use_hyena_filter": true,
+   "seq_length": 8192,  
+   "norm": "rmsnorm", 
+   "pos_emb": None,
+   "hyena_filter_fast_decay": 0.9,
+   "hyena_filter_slow_decay": 1.5,
+   "hyena_filter_order": 1536,
+   # percentage of sequence length at which the Hyena filters decay to approximately 0
+   "hyena_filter_w": 1, 
+
+   ############## misc optims
+   "scaled_upper_triang_masked_softmax_fusion": true,
+   "bias_gelu_fusion": true,
+
+   ############### init
+   "init_method": "small_init",
+   "output_layer_init_method": "wang_init",
+
+   ############## optimizer
+   "optimizer": {
+     "type": "Adam",
+     "params": {
+       "lr": 0.0006,
+       "betas": [0.9, 0.95],
+       "eps": 1.0e-8,
+     }
+   },
+   "min_lr": 0.00006,
+
+   ############### sys optims
+   "zero_optimization": {
+    "stage": 0,
+    "allgather_partitions": True,
+    "allgather_bucket_size": 500000000,
+    "overlap_comm": True,
+    "reduce_scatter": True,
+    "reduce_bucket_size": 500000000,
+    "contiguous_gradients": True,
+  },
+
+   ################# batch sizes
+   "train_micro_batch_size_per_gpu": 32,
+   "data_impl": "mmap",
+
+   ################# act checkpointing
+   "checkpoint_activations": True,
+   "checkpoint_num_layers": 1,
+   "partition_activations": True,
+   "synchronize_each_layer": True,
+
+   ################# regularization
+   "gradient_clipping": 1.0,
+   "weight_decay": 0.1,
+   "hidden_dropout": 0.0,
+   "attention_dropout": 0.0,
+
+   ################ precision
+   "precision": "bfloat16",
+   "bf16": {
+   "enabled": True
+    },
+   
+   ################# training
+   "train_iters": 71500,
+   "lr_decay_iters": 71500,
+   "distributed_backend": "nccl",
+   "lr_decay_style": "cosine",
+   "warmup": 0.01,
+   "checkpoint_factor": 10000,
+   "eval_interval": 10000,
+   "eval_iters": 10,
+
+   ################ logging
+   "log_interval": 200,
+   "steps_per_print": 200,
+   "keep_last_n_checkpoints": 4,
+   "wall_clock_breakdown": False,
+
+  # tokenizer files
+  "tokenizer_type": "HFTokenizer",
+  "vocab_file": "/var/cr01_data/mpoli_data/20B_tokenizer.json",
+
+  # load
+   "load": "/var/cr06_data/mpoli/checkpoints/1.5b_hyena_rp",
+   "iteration": 90000,
+}

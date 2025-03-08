@@ -1,12 +1,11 @@
 """Megatron initialization."""
-
 import random
 import os
+import warnings
 
 import numpy as np
 import torch
 
-from savanna import fused_kernels
 from savanna import mpu
 from savanna.mpu import set_model_parallel_rank, set_model_parallel_world_size
 
@@ -26,6 +25,8 @@ def initialize_megatron(global_config, allow_no_cuda=False):
         # Make sure cuda is available.
         assert torch.cuda.is_available(), "Megatron requires CUDA."
 
+    warnings.filterwarnings("ignore", message="c10d::broadcast_: an autograd kernel was not registered")
+
     # torch.distributed initialization
     def finish_mpu_init():
         # Pytorch distributed.
@@ -35,13 +36,6 @@ def initialize_megatron(global_config, allow_no_cuda=False):
         if global_config.rank == 0:
             print("> setting random seeds to {} ...".format(global_config.seed))
         _set_random_seed(global_config.seed)
-
-    # check fused kernels are installed:
-    if (
-        global_config.scaled_upper_triang_masked_softmax_fusion
-        or global_config.scaled_masked_softmax_fusion
-    ):
-        fused_kernels.load_fused_kernels()
 
     if global_config.lazy_mpu_init:
         global_config.use_cpu_initialization = True
@@ -83,9 +77,7 @@ def setup_deepspeed_random_and_activation_checkpointing(global_config):
     """
     num_layers = global_config.num_layers // global_config.checkpoint_num_layers
     num_layers = (
-        num_layers
-        if global_config.num_layers % global_config.checkpoint_num_layers == 0
-        else num_layers + 1
+        num_layers if global_config.num_layers % global_config.checkpoint_num_layers == 0 else num_layers + 1
     )
 
     deepspeed.checkpointing.configure(
@@ -101,13 +93,11 @@ def setup_deepspeed_random_and_activation_checkpointing(global_config):
 
 def _initialize_distributed(global_config):
     """Initialize torch.distributed and mpu."""
-
     device_count = torch.cuda.device_count()
     if torch.distributed.is_initialized():
         if global_config.rank == 0:
             print(
-                "torch distributed is already initialized, "
-                "skipping initialization ...",
+                "torch distributed is already initialized, " "skipping initialization ...",
                 flush=True,
             )
         global_config.rank = torch.distributed.get_rank()
@@ -137,14 +127,8 @@ def _initialize_distributed(global_config):
         global_config.world_size = deepspeed.comm.get_world_size()
 
     # Setup 3D topology.
-    pp = (
-        global_config.pipe_parallel_size if global_config.pipe_parallel_size >= 1 else 1
-    )
-    mp = (
-        global_config.model_parallel_size
-        if global_config.model_parallel_size >= 1
-        else 1
-    )
+    pp = global_config.pipe_parallel_size if global_config.pipe_parallel_size >= 1 else 1
+    mp = global_config.model_parallel_size if global_config.model_parallel_size >= 1 else 1
     assert (
         global_config.world_size % (pp * mp) == 0
     ), f"world_size={global_config.world_size}, pp={pp}, mp={mp}"
@@ -206,6 +190,7 @@ def _set_random_seed(seed):
         random.seed(seed)
         np.random.seed(seed)
         torch.manual_seed(seed)
+
         if torch.cuda.device_count() > 0:
             mpu.model_parallel_cuda_manual_seed(seed)
     else:
@@ -216,6 +201,4 @@ def _write_args_to_tensorboard(global_config):
     """Write arguments to tensorboard."""
     if global_config.tensorboard_writer:
         for arg_name in vars(global_config):
-            global_config.tensorboard_writer.add_text(
-                arg_name, str(getattr(global_config, arg_name))
-            )
+            global_config.tensorboard_writer.add_text(arg_name, str(getattr(global_config, arg_name)))

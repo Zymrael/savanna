@@ -1,5 +1,4 @@
 """Learning rate decay functions."""
-
 import math
 
 from savanna import print_rank_0
@@ -34,9 +33,7 @@ class AnnealingLR(object):
         self.use_checkpoint_lr_scheduler = use_checkpoint_lr_scheduler
         self.use_mup = use_mup
         if self.override_lr_scheduler:
-            assert not self.use_checkpoint_lr_scheduler, (
-                "both override and " "use-checkpoint are set."
-            )
+            assert not self.use_checkpoint_lr_scheduler, "both override and " "use-checkpoint are set."
         # Set the learning rate
         self.step(self.num_iters)
 
@@ -55,11 +52,7 @@ class AnnealingLR(object):
         if self.decay_style == "linear":
             lr = self.start_lr * (self.end_iter - num_iters_) / self.end_iter
         elif self.decay_style == "cosine":
-            lr = (
-                self.start_lr
-                / 2.0
-                * (math.cos(math.pi * num_iters_ / self.end_iter) + 1)
-            )
+            lr = self.start_lr / 2.0 * (math.cos(math.pi * num_iters_ / self.end_iter) + 1)
         elif self.decay_style == "exponential":
             # exp(-0.693) = 1/2
             lr = self.start_lr * math.exp(-0.693 * num_iters_ / self.end_iter)
@@ -98,29 +91,18 @@ class AnnealingLR(object):
             return cls_value
 
         if not self.use_checkpoint_lr_scheduler:
-            assert cls_value == sd_value, (
-                "AnnealingLR: class input value"
-                "and checkpoint values for {} do not match".format(name)
-            )
+            assert (
+                cls_value == sd_value
+            ), "AnnealingLR: class input value" "and checkpoint values for {} do not match".format(name)
         print_rank_0(" > using checkpoint value {} for {}".format(sd_value, name))
         return sd_value
 
     def load_state_dict(self, sd):
-        self.start_lr = self._check_and_set(
-            self.start_lr, sd["start_lr"], "learning rate"
-        )
-        self.min_lr = self._check_and_set(
-            self.min_lr, sd["min_lr"], "minimum learning rate"
-        )
-        self.warmup_iter = self._check_and_set(
-            self.warmup_iter, sd["warmup_iter"], "warmup iterations"
-        )
-        self.end_iter = self._check_and_set(
-            self.end_iter, sd["end_iter"], "total number of iterations"
-        )
-        self.decay_style = self._check_and_set(
-            self.decay_style, sd["decay_style"], "decay style"
-        )
+        self.start_lr = self._check_and_set(self.start_lr, sd["start_lr"], "learning rate")
+        self.min_lr = self._check_and_set(self.min_lr, sd["min_lr"], "minimum learning rate")
+        self.warmup_iter = self._check_and_set(self.warmup_iter, sd["warmup_iter"], "warmup iterations")
+        self.end_iter = self._check_and_set(self.end_iter, sd["end_iter"], "total number of iterations")
+        self.decay_style = self._check_and_set(self.decay_style, sd["decay_style"], "decay style")
 
         self.num_iters = sd["num_iters"]
         self.step(self.num_iters)

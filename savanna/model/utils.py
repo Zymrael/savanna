@@ -1,17 +1,38 @@
 """Utilities for models."""
-
 import torch
 import torch.nn as nn
-from savanna.model.norms import LayerNorm, RMSNorm, ScaleNorm
-from savanna.model.hyena import ParallelHyenaFilter
-from savanna.model.fused_softmax import SoftmaxFusionTypes
+from savanna.model.operators.local.norms import LayerNorm, RMSNorm, ScaleNorm
+from savanna.model.operators.hyena.hyena import ParallelImplicitFreeformFilter, ParallelShortHyenaOperator
+from savanna import mpu
 from types import GeneratorType
 import torch.distributed as dist
+from savanna.model.operators.hyena.parametrization.explicit_filter import (
+    ExplicitSingleDecayFilter,
+    ImplicitRealModalFilter,
+)
+from savanna.model.operators.hyena.parametrization.implicit_complex import ParallelComplexModalFilter
+
+
+def get_dtype_from_string(dtype_str):
+    if dtype_str == "float32":
+        return torch.float32
+    elif dtype_str == "float16" or dtype_str == "fp16":
+        return torch.float16
+    elif dtype_str == "bfloat16":
+        return torch.bfloat16
+    else:
+        raise ValueError(f"Unrecognized dtype {dtype_str}")
+
+
+def add_to_param_group(module, param_group):
+    param_group["params"].extend([p for p in list(module._parameters.values()) if p is not None])
 
 
 def get_params_for_weight_decay_optimization(module, global_config):
     """Divide params into with-weight-decay and without-weight-decay groups.
     Layernorms, biases and filter parameters will have no weight decay but the rest will.
+
+    Added ability to change LR, but only if the hyena_wd is set to 0.0, can change that later.
     """
     weight_decay_params = {"params": []}
     global_config.wd_free_lr = global_config.optimizer["params"].get("wd_free_lr")
@@ -21,56 +42,73 @@ def get_params_for_weight_decay_optimization(module, global_config):
         if getattr(global_config, "wd_free_lr", None) is not None
         else global_config.optimizer["params"]["lr"]
     )
+
     # pop wd_free_lr from optimizer params so it doesn't get passed to the optimizer
     wd_free_lr = global_config.optimizer["params"].pop("wd_free_lr", None)
     global_config.wd_free_lr = wd_free_lr
 
     no_weight_decay_params = {"params": [], "weight_decay": 0.0, "lr": lr}
 
+    # create a new param group for medium hyena if different lr
+    if (
+        global_config.lr_medium_hyena is not None
+        and global_config.lr_medium_hyena != global_config.optimizer["params"]["lr"]
+    ):
+        # note, no weight decay for medium hyena
+        medium_hyena_params = {"params": [], "weight_decay": 0.0, "lr": global_config.lr_medium_hyena}
+    else:
+        medium_hyena_params = None
+
     for module_ in module.modules():
-        print(global_config.hyena_filter_wd)
-        if (
-            any(
-                [
-                    isinstance(module_, LayerNorm),
-                    isinstance(module_, RMSNorm),
-                    isinstance(module_, ScaleNorm),
-                ]
-            )
-            or (
-                global_config.weight_decay
-                == 0.0  # also include all parameters here if no weight decay is being done
-            )
-            or (
-                isinstance(module_, ParallelHyenaFilter)
-                and global_config.hyena_filter_wd == 0.0
-            )
+        # all Norm layers, or all layers if weight decay is off
+        if any(
+            [
+                isinstance(module_, LayerNorm),
+                isinstance(module_, RMSNorm),
+                isinstance(module_, ScaleNorm),
+            ]
+        ) or (
+            global_config.weight_decay
+            == 0.0  # also include all parameters here if no weight decay is being done
         ):
-            if isinstance(module_, ParallelHyenaFilter):
-                print(f"Setting Hyena Filter weight decay to 0.0 and lr to {lr}")
-            no_weight_decay_params["params"].extend(
-                [p for p in list(module_._parameters.values()) if p is not None]
-            )
+            add_to_param_group(module_, no_weight_decay_params)
+
+        # implicit hyena filters
+        elif global_config.hyena_filter_wd == 0.0 and (
+            isinstance(module_, ParallelImplicitFreeformFilter)
+            or isinstance(module_, ParallelComplexModalFilter)
+            or isinstance(module_, ImplicitRealModalFilter)
+        ):
+            add_to_param_group(module_, no_weight_decay_params)
+
+        # explicit (medium usually) hyena filters
+        elif isinstance(module_, ExplicitSingleDecayFilter) and global_config.hyena_filter_wd == 0.0:
+            if medium_hyena_params is not None:
+                add_to_param_group(module_, medium_hyena_params)
+            else:
+                add_to_param_group(module_, no_weight_decay_params)
+
+        # short hyena filters
+        elif isinstance(module_, ParallelShortHyenaOperator) and global_config.hyena_filter_wd == 0.0:
+            # note, we're passing in the whole class, so need to make sure not to include bias in weight decay
+            add_to_param_group(module_, no_weight_decay_params)
+
+        # non-hyena layers (if weight decay on)
         else:
             weight_decay_params["params"].extend(
-                [
-                    p
-                    for n, p in list(module_._parameters.items())
-                    if p is not None and n != "bias"
-                ]
+                [p for n, p in list(module_._parameters.items()) if p is not None and n != "bias"]
             )
             no_weight_decay_params["params"].extend(
-                [
-                    p
-                    for n, p in list(module_._parameters.items())
-                    if p is not None and n == "bias"
-                ]
+                [p for n, p in list(module_._parameters.items()) if p is not None and n == "bias"]
             )
     if global_config.weight_decay == 0.0:
         # only return a single param group
         # with onebitadam, we want to minimize the calls to compressed_allreduce. Every param group calls it once.
         # to avoid this, only use a single param group when weight decay is off.
         return [no_weight_decay_params]
+    elif medium_hyena_params is not None:
+        return weight_decay_params, no_weight_decay_params, medium_hyena_params
+
     return weight_decay_params, no_weight_decay_params
 
 
@@ -107,10 +145,8 @@ class SequentialWrapper(torch.nn.Module):
         self.activation_checkpoint_func = activation_checkpoint_func
 
     def _is_checkpointable(self, funcs):
-        if self.parent_class_name == "GPT2ModelPipe":
-            return all(
-                "ParallelTransformerLayerPipe" in f.__class__.__name__ for f in funcs
-            )
+        if self.parent_class_name == "BackbonePipe":
+            return all("ParallelBlockPipe" in f.__class__.__name__ for f in funcs)
         params = [f.parameters() for f in funcs if isinstance(f, torch.nn.Module)]
         return any(len(list(p)) > 0 for p in params)
 
@@ -129,14 +165,8 @@ class SequentialWrapper(torch.nn.Module):
         """
         _set_use_cache(self.sequential, False)
 
-    def forward(
-        self, forward_input, curriculum_seqlen=None, labels=None, global_config=None
-    ):
-        if (
-            curriculum_seqlen is not None
-            and isinstance(forward_input, tuple)
-            and len(forward_input) == 3
-        ):
+    def forward(self, forward_input, curriculum_seqlen=None, labels=None, global_config=None):
+        if curriculum_seqlen is not None and isinstance(forward_input, tuple) and len(forward_input) == 3:
             global_config.update_value("curriculum_seqlen", curriculum_seqlen)
             tokens = forward_input[0]
             input_ids = forward_input[1]
@@ -150,9 +180,7 @@ class SequentialWrapper(torch.nn.Module):
                 if labels is not None:
                     labels = labels[:, :curriculum_seqlen].contiguous()
                 # attention_mask has size [1, 1, seqlen, seqlen]
-                attention_mask = attention_mask[
-                    :, :, :curriculum_seqlen, :curriculum_seqlen
-                ].contiguous()
+                attention_mask = attention_mask[:, :, :curriculum_seqlen, :curriculum_seqlen].contiguous()
             forward_input = (tokens, input_ids, attention_mask)
 
         def exec_range_func(start, end):
@@ -177,9 +205,7 @@ class SequentialWrapper(torch.nn.Module):
             num_layers = len(self.sequential)
             x = forward_input
             for start_idx in range(0, num_layers, self.activation_checkpoint_interval):
-                end_idx = min(
-                    start_idx + self.activation_checkpoint_interval, num_layers
-                )
+                end_idx = min(start_idx + self.activation_checkpoint_interval, num_layers)
 
                 funcs = self.sequential[start_idx:end_idx]
                 # Since we either pass tensors or tuples of tensors without unpacking, we
@@ -188,9 +214,7 @@ class SequentialWrapper(torch.nn.Module):
                     x = (x,)
 
                 if self._is_checkpointable(funcs):
-                    x = self.activation_checkpoint_func(
-                        exec_range_func(start_idx, end_idx), *x
-                    )
+                    x = self.activation_checkpoint_func(exec_range_func(start_idx, end_idx), *x)
                 else:
                     x = exec_range_func(start_idx, end_idx)(*x)
         return x
@@ -225,7 +249,7 @@ def _set_use_cache(modules, value: bool):
     recursive_setattr(modules, "use_cache", value, assert_type=bool)
 
 
-def configure_sparse_attention(global_config, attention_type, num_attention_heads, mpu):
+def configure_sparse_attention(global_config, operator_type, num_attention_heads, mpu):
     from deepspeed.ops.sparse_attention import (
         SparseSelfAttention,
         VariableSparsityConfig,
@@ -237,15 +261,13 @@ def configure_sparse_attention(global_config, attention_type, num_attention_head
         LocalSlidingWindowSparsityConfig,
     )
 
-    if attention_type == "sparse_fixed":
+    if operator_type == "sparse_fixed":
         # you can think of local window size as `block_size` * `num_local_blocks`.
         # so if you wanted to set a local window size of 256, set block size to 16 and `num_local_blocks` to 16
         sparsity_config = FixedSparsityConfig(
             num_heads=num_attention_heads,
             block=global_config.sparsity_config.get("block", 16),
-            different_layout_per_head=global_config.sparsity_config.get(
-                "different_layout_per_head", False
-            ),
+            different_layout_per_head=global_config.sparsity_config.get("different_layout_per_head", False),
             num_local_blocks=global_config.sparsity_config.get("num_local_blocks", 4),
             num_global_blocks=global_config.sparsity_config.get("num_global_blocks", 1),
             num_different_global_patterns=global_config.sparsity_config.get(
@@ -254,27 +276,19 @@ def configure_sparse_attention(global_config, attention_type, num_attention_head
             attention="unidirectional",
             horizontal_global_attention=False,
         )
-    elif attention_type == "sparse_variable":
+    elif operator_type == "sparse_variable":
         sparsity_config = VariableSparsityConfig(
             num_heads=num_attention_heads,
             block=global_config.sparsity_config.get("block", 16),
-            different_layout_per_head=global_config.sparsity_config.get(
-                "different_layout_per_head", False
-            ),
+            different_layout_per_head=global_config.sparsity_config.get("different_layout_per_head", False),
             num_random_blocks=global_config.sparsity_config.get("num_random_blocks", 0),
-            local_window_blocks=global_config.sparsity_config.get(
-                "local_window_blocks", [4]
-            ),
-            global_block_indices=global_config.sparsity_config.get(
-                "global_block_indices", [0]
-            ),
-            global_block_end_indices=global_config.sparsity_config.get(
-                "global_block_end_indices", None
-            ),
+            local_window_blocks=global_config.sparsity_config.get("local_window_blocks", [4]),
+            global_block_indices=global_config.sparsity_config.get("global_block_indices", [0]),
+            global_block_end_indices=global_config.sparsity_config.get("global_block_end_indices", None),
             attention="unidirectional",
             horizontal_global_attention=False,
         )
-    elif attention_type == "local":
+    elif operator_type == "local":
         # can configure with `num_local_blocks` or `num_sliding_window_blocks`
         num_local_blocks = global_config.sparsity_config.get(
             "num_local_blocks",
@@ -286,40 +300,28 @@ def configure_sparse_attention(global_config, attention_type, num_attention_head
             num_sliding_window_blocks=num_local_blocks,
             attention="unidirectional",
         )
-    elif attention_type == "bigbird":
+    elif operator_type == "bigbird":
         sparsity_config = BigBirdSparsityConfig(
             num_heads=num_attention_heads,
             block=global_config.sparsity_config.get("block", 16),
-            different_layout_per_head=global_config.sparsity_config.get(
-                "different_layout_per_head", False
-            ),
+            different_layout_per_head=global_config.sparsity_config.get("different_layout_per_head", False),
             num_random_blocks=global_config.sparsity_config.get("num_random_blocks", 1),
-            num_sliding_window_blocks=global_config.sparsity_config.get(
-                "num_sliding_window_blocks", 3
-            ),
+            num_sliding_window_blocks=global_config.sparsity_config.get("num_sliding_window_blocks", 3),
             num_global_blocks=global_config.sparsity_config.get("num_global_blocks", 1),
             attention="unidirectional",
         )
-    elif attention_type == "bslongformer":
+    elif operator_type == "bslongformer":
         sparsity_config = BSLongformerSparsityConfig(
             num_heads=num_attention_heads,
             block=global_config.sparsity_config.get("block", 16),
-            different_layout_per_head=global_config.sparsity_config.get(
-                "different_layout_per_head", False
-            ),
-            num_sliding_window_blocks=global_config.sparsity_config.get(
-                "num_sliding_window_blocks", 3
-            ),
-            global_block_indices=global_config.sparsity_config.get(
-                "global_block_indices", [0]
-            ),
-            global_block_end_indices=global_config.sparsity_config.get(
-                "global_block_end_indices", None
-            ),
+            different_layout_per_head=global_config.sparsity_config.get("different_layout_per_head", False),
+            num_sliding_window_blocks=global_config.sparsity_config.get("num_sliding_window_blocks", 3),
+            global_block_indices=global_config.sparsity_config.get("global_block_indices", [0]),
+            global_block_end_indices=global_config.sparsity_config.get("global_block_end_indices", None),
             attention="unidirectional",
         )
     else:
-        raise ValueError(f"Attention type {attention_type} not recognized")
+        raise ValueError(f"Attention type {operator_type} not recognized")
     return SparseSelfAttention(
         sparsity_config=sparsity_config,
         max_seq_length=global_config.seq_length,
@@ -327,11 +329,43 @@ def configure_sparse_attention(global_config, attention_type, num_attention_head
         mpu=mpu,
     )
 
+def reduce_weight_grads_from_model_parallel_region(input_):
+    """A hook that can be applied to any weight tensor via .register_hook().
+    Allreduces grads for e.g. LN weights across the model parallel group.
+    Needed to keep LNs in sync, despite them getting diff data -> diff gradients when using sequence parallel.
+    """
+    # Bypass the function if no TP -> no comm needed.
+    if mpu.get_model_parallel_world_size() == 1:
+        return input_
 
-def get_fusion_type(global_config):
-    fusion_type = SoftmaxFusionTypes.none
-    if global_config.scaled_upper_triang_masked_softmax_fusion:
-        fusion_type = SoftmaxFusionTypes.upper_triang
-    elif global_config.scaled_masked_softmax_fusion:
-        fusion_type = SoftmaxFusionTypes.general
-    return fusion_type
+    # Bf16 convert
+    dt = input_.dtype
+    if dt == torch.bfloat16 and mpu.get_fp32_allreduce():
+        input_ = input_.float()
+
+    # All-reduce.
+    torch.distributed.all_reduce(input_, group=mpu.get_model_parallel_group())
+
+    # Bf16 convert
+    if dt == torch.bfloat16 and mpu.get_fp32_allreduce():
+        input_ = input_.bfloat16()
+
+    return input_
+
+
+def mark_norms_for_sequence_parallel_grad_sync(module, global_config):
+    """Iterate through the modules in our model, and for any "...Norm" classnames,
+    register a hook on each of that module's parameters which will allreduce norms' weights' grads across
+    the model (sequence) parallel region.
+    """
+
+    if not global_config.sequence_parallel:
+        # if we aren't using sequence parallelism, this is a no-op
+        return
+
+    for module_ in module.modules():
+        if "norm" in type(module_).__name__.lower():
+            # this is a norm, we want to allreduce its weight grads across sequence parallel region
+            for name, param in module_.named_parameters():
+                if param.requires_grad:
+                    param.register_hook(reduce_weight_grads_from_model_parallel_region)

@@ -1,11 +1,8 @@
 """Merge model parallel partitions."""
-
 import os
 import sys
 
-sys.path.append(
-    os.path.abspath(os.path.join(os.path.dirname(__file__), os.path.pardir))
-)
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.path.pardir)))
 
 import torch
 
@@ -21,9 +18,7 @@ def split_into_partitions(tensor, num_partitions, partition_dim, stride):
     per_partition_size = mpu.utils.divide(tensor.size(partition_dim), num_partitions)
     per_partition_per_stride_size = mpu.utils.divide(per_partition_size, stride)
 
-    partitions_list = torch.split(
-        tensor, per_partition_per_stride_size, dim=partition_dim
-    )
+    partitions_list = torch.split(tensor, per_partition_per_stride_size, dim=partition_dim)
 
     partitions = []
     for i in range(num_partitions):
@@ -52,17 +47,14 @@ def merge_partitions(merged, partitions, partition_dim, stride):
                     "     ***WARNING*** sizes do not match. Will cut "
                     "the merged partitions by {} along dimension {} "
                     "to reduce the size from {} to {} ...".format(
-                        (per_partition_size * num_partitions)
-                        - merged.size(partition_dim),
+                        (per_partition_size * num_partitions) - merged.size(partition_dim),
                         partition_dim,
                         per_partition_size * num_partitions,
                         merged.size(partition_dim),
                     )
                 )
                 merged_ = torch.cat(partitions_, dim=partition_dim)
-                merged_split = torch.split(
-                    merged_, merged.size(partition_dim), dim=partition_dim
-                )
+                merged_split = torch.split(merged_, merged.size(partition_dim), dim=partition_dim)
                 merged_ = merged_split[0]
                 assert merged_.size(partition_dim) == merged.size(partition_dim)
                 merged.data.copy_(merged_.data)
@@ -177,9 +169,7 @@ def main():
     print("    number of layers ................ {}".format(args.num_layers))
     print("    hidden size ..................... {}".format(args.hidden_size))
     print("    number of attention heads ....... {}".format(args.num_attention_heads))
-    print(
-        "    maximum position embeddings ..... {}".format(args.max_position_embeddings)
-    )
+    print("    maximum position embeddings ..... {}".format(args.max_position_embeddings))
 
     # Full model.
     print("> building the full model ...")
@@ -211,9 +201,7 @@ def main():
             name, merged_param = next(merged_params_gen)
             print(" > working on {} ...".format(name))
             print(
-                "     merged         type: {}, size: {}".format(
-                    merged_param.dtype, list(merged_param.size())
-                )
+                "     merged         type: {}, size: {}".format(merged_param.dtype, list(merged_param.size()))
             )
             partitions_param = []
             for rank, partition_params_gen in enumerate(partitions_params_gen):
@@ -235,9 +223,7 @@ def main():
             else:
                 print(
                     "     parallel parameter merge with stride {} along "
-                    "dimension {}".format(
-                        merged_param.stride, merged_param.partition_dim
-                    )
+                    "dimension {}".format(merged_param.stride, merged_param.partition_dim)
                 )
                 merge_partitions(
                     merged_param,

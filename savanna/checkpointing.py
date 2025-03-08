@@ -1,5 +1,4 @@
 """Input/output checkpointing."""
-
 import json
 import os
 import re
@@ -25,9 +24,14 @@ def check_checkpoint_args(global_config, checkpoint_args):
 
     assert isinstance(checkpoint_args, dict), "args stored in checkpoint is a dict"
     for checkpoint_arg_name, checkpoint_arg_value in checkpoint_args.items():
+        # ingore "max_position_embeddings", to allow context interpolation
+        if checkpoint_arg_name == "max_position_embeddings":
+            continue
         args_value = getattr(global_config, checkpoint_arg_name)
-        error_message = "{} value from checkpoint ({}) is not equal to the currently set argument value ({}).".format(
-            checkpoint_arg_name, checkpoint_arg_value, args_value
+        error_message = (
+            "{} value from checkpoint ({}) is not equal to the currently set argument value ({}).".format(
+                checkpoint_arg_name, checkpoint_arg_value, args_value
+            )
         )
         assert checkpoint_arg_value == args_value, error_message
 
@@ -71,18 +75,14 @@ def do_forward_pass(global_config, model, inference=False):
         model.train()
 
     if logits is not None:
-        logits = logits.detach().cpu()[
-            0
-        ]  # just return first batch item (they are all equal)
+        logits = logits.detach().cpu()[0]  # just return first batch item (they are all equal)
 
     return logits
 
 
 def check_forward_pass(global_config, model, checkpoint_logits, inference):
     # do forward pass with loaded checkpoint
-    logits = do_forward_pass(
-        global_config=global_config, model=model, inference=inference
-    )
+    logits = do_forward_pass(global_config=global_config, model=model, inference=inference)
 
     # check
     if (
@@ -114,9 +114,7 @@ def get_checkpoint_name(checkpoints_path, iteration, release=False, mp_rank=None
     return os.path.join(
         checkpoints_path,
         directory,
-        "mp_rank_{:02d}".format(
-            mpu.get_model_parallel_rank() if mp_rank is None else mp_rank
-        ),
+        "mp_rank_{:02d}".format(mpu.get_model_parallel_rank() if mp_rank is None else mp_rank),
         "model_optim_rng.pt",
     )
 
@@ -127,11 +125,7 @@ def delete_old_checkpoints(save_dir, n_to_keep):
         if save_dir.endswith("/"):
             save_dir = save_dir.strip("/")
         all_ckpts = natural_sort(
-            [
-                i
-                for i in glob(f"{save_dir}/*")
-                if os.path.isdir(i) and re.search(ckpt_dir_regex, i)
-            ]
+            [i for i in glob(f"{save_dir}/*") if os.path.isdir(i) and re.search(ckpt_dir_regex, i)]
         )
         n_to_delete = len(all_ckpts) - n_to_keep
         if n_to_delete > 0:
@@ -157,6 +151,10 @@ def save_ds_checkpoint(iteration, model, global_config):
             "padded_vocab_size": global_config.padded_vocab_size,
             "tokenizer_type": global_config.tokenizer_type,
             "model_parallel_size": global_config.model_parallel_size,
+        },
+        "data_loading": {
+            "train_data_token_index": global_config.train_data_token_index,
+            "train_val_test_num_samples": global_config.train_val_test_num_samples,
         },
     }
     # rng states.
@@ -200,17 +198,13 @@ def save_checkpoint(global_config, iteration, model, optimizer, lr_scheduler):
     # Wait so everyone is done (necessary)
     torch.distributed.barrier()
     if global_config.keep_last_n_checkpoints is not None:
-        delete_old_checkpoints(
-            global_config.save, global_config.keep_last_n_checkpoints
-        )
+        delete_old_checkpoints(global_config.save, global_config.keep_last_n_checkpoints)
 
     # Wait so everyone is done (not necessary)
     torch.distributed.barrier()
 
 
-def load_checkpoint(
-    global_config, model, optimizer, lr_scheduler, inference=False, iteration=None
-):
+def load_checkpoint(global_config, model, optimizer, lr_scheduler, inference=False, iteration=None):
     """Load a model checkpoint and return the iteration."""
     iteration = global_config.iteration if iteration is None else iteration
 
@@ -220,7 +214,10 @@ def load_checkpoint(
         )  # TODO: These should be configured by separate args
         if global_config.finetune:
             load_optim_and_scheduler = False
-        if global_config.iteration is not None:
+        # check if we are loading a universal checkpoint
+        if global_config.checkpoint is not None and global_config.checkpoint.get("load_universal", False):
+            tag = f"global_step{iteration}_universal"
+        elif global_config.iteration is not None:
             tag = f"global_step{iteration}"
         else:
             tag = None
@@ -228,7 +225,9 @@ def load_checkpoint(
             global_config.load,
             load_optimizer_states=load_optim_and_scheduler,
             load_lr_scheduler_states=load_optim_and_scheduler,
+            load_module_only=not load_optim_and_scheduler,
             tag=tag,
+            load_module_strict=global_config.checkpoint_strict_load,
         )
 
         if checkpoint_name is None:
@@ -266,12 +265,8 @@ def load_checkpoint(
     # Check arguments.
     if "args" in state_dict:
         checkpoint_args = state_dict["args"]
-        check_checkpoint_args(
-            global_config=global_config, checkpoint_args=checkpoint_args
-        )
-        print_rank_0(
-            " > validated currently set args with arguments in the checkpoint ..."
-        )
+        check_checkpoint_args(global_config=global_config, checkpoint_args=checkpoint_args)
+        print_rank_0(" > validated currently set args with arguments in the checkpoint ...")
     else:
         print_rank_0(" > could not find arguments in the checkpoint for validation...")
 
@@ -292,6 +287,18 @@ def load_checkpoint(
                         checkpoint_name
                     )
                 )
+
+    # Set previous data loading values.
+    if "data_loading" in state_dict:
+        checkpoint_data_loading = state_dict["data_loading"]
+        if global_config.train_data_token_index is None:
+            global_config.train_data_token_index = checkpoint_data_loading.get(
+                "train_data_token_index"
+            )
+        if global_config.use_checkpoint_num_samples:
+            global_config.train_val_test_num_samples = checkpoint_data_loading.get(
+                "train_val_test_num_samples"
+            )
 
     # rng states.
     if not global_config.finetune and not global_config.no_load_rng:

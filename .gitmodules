@@ -1,0 +1,3 @@
+[submodule "flash-fft-conv"]
+	path = flash-fft-conv
+	url = https://github.com/HazyResearch/flash-fft-conv.git

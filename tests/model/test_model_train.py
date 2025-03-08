@@ -21,7 +21,7 @@ PARAMS_TO_TEST = {
     ],
     "pipe_parallel_size,model_parallel_size": [[0, 1], [1, 2], [0, 2]],
     "no_weight_tying": binary,
-    "attention_config,num_layers": [
+    "operator_config,num_layers": [
         [[[["global"], "all"]], 2],
         [[[["local", "global"], "all"]], 12],
         [[[["sparse_variable", "global"], "all"]], 12],

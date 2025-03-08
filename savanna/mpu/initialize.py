@@ -1,5 +1,4 @@
 """Model and data parallel groups."""
-
 import torch
 
 from .utils import ensure_divisibility
@@ -15,6 +14,10 @@ _PIPE_PARALLEL_GROUP = None
 # but with pipeline parallelism it must also involve the last stage (which is not in the
 # DP group of rank 0)
 _IO_PARALLEL_GROUP = None
+
+# A group used to sync FP8 activation stats. This includes all ranks on the same
+# pipeline depth, regardless of model or data parallel position.
+_FP8_SYNC_GROUP = None
 
 # These values enable us to change the mpu sizes on the fly.
 _MPU_WORLD_SIZE = None
@@ -107,6 +110,20 @@ def initialize_model_parallel(model_parallel_size, topology=None, fp32_allreduce
     else:
         _IO_PARALLEL_GROUP = get_data_parallel_group()
 
+    global _FP8_SYNC_GROUP
+    if topology and topology.get_dim("pipe") > 1:
+        pipe_depth = topology.get_dim("pipe")
+        for stage in range(pipe_depth):
+            pipe_group = topology.filter_match(pipe=stage)
+            if rank == 0:
+                print(f"MPU FP8:", pipe_group)
+            group = torch.distributed.new_group(ranks=pipe_group)
+            if rank in pipe_group:
+                _FP8_SYNC_GROUP = group
+    else:
+        # If pipe depth is 1, then we sync amongst all ranks
+        _FP8_SYNC_GROUP = None
+
     # Build the model parallel groups.
     global _MODEL_PARALLEL_GROUP
     assert _MODEL_PARALLEL_GROUP is None, "model parallel group is already initialized"
@@ -148,9 +165,10 @@ def model_parallel_is_initialized():
     return True
 
 
-def get_model_parallel_group():
+def get_model_parallel_group(check_initialized=True):
     """Get the model parallel group the caller rank belongs to."""
-    assert _MODEL_PARALLEL_GROUP is not None, "model parallel group is not initialized"
+    if check_initialized:
+        assert _MODEL_PARALLEL_GROUP is not None, "model parallel group is not initialized"
     return _MODEL_PARALLEL_GROUP
 
 
@@ -248,6 +266,21 @@ def get_pipe_parallel_world_size():
     return torch.distributed.get_world_size(group=get_pipe_parallel_group())
 
 
+def get_fp8_sync_group():
+    """Get the pipe parallel group the caller rank belongs to."""
+    return _FP8_SYNC_GROUP
+
+
+def get_fp8_sync_world_size():
+    """Return world size for the data parallel group."""
+    return torch.distributed.get_world_size(group=get_fp8_sync_group())
+
+
+def get_fp8_sync_rank():
+    """Return my rank for the data parallel group."""
+    return torch.distributed.get_rank(group=get_fp8_sync_group())
+
+
 def destroy_model_parallel():
     """Set the groups to none."""
     global _MODEL_PARALLEL_GROUP
@@ -258,6 +291,8 @@ def destroy_model_parallel():
     _PIPE_PARALLEL_GROUP = None
     global _IO_PARALLEL_GROUP
     _IO_PARALLEL_GROUP = None
+    global _FP8_SYNC_GROUP
+    _FP8_SYNC_GROUP = None
     global _MPU_WORLD_SIZE
     global _MPU_RANK
     _MPU_WORLD_SIZE = None

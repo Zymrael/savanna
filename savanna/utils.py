@@ -1,10 +1,14 @@
 """General utilities."""
+import datetime
 import os
 import sys
 import re
 import time
+import math
 import socket
+from functools import cache
 from typing import Dict, List
+from savanna import mpu
 
 import requests
 
@@ -15,12 +19,43 @@ except ModuleNotFoundError:
 
 import torch
 
-from deepspeed.launcher.runner import fetch_hostfile, parse_inclusion_exclusion
+import deepspeed.launcher.runner as runner
 
 from savanna import print_rank_0
 from savanna import mpu
 
 from collections import deque
+
+# Device to allocate parameters (and temporaries used to calculate the parameters)
+ALLOC_DEVICE = 'cuda'
+
+
+def get_dtype_from_string(dtype_str):
+    if type(dtype_str) == str:
+        if dtype_str == "float32" or dtype_str == "fp32":
+            return torch.float32
+        elif dtype_str == "float16" or dtype_str == "fp16":
+            return torch.float16
+        elif dtype_str == "bfloat16" or dtype_str == "bf16":
+            return torch.bfloat16
+        else:
+            raise ValueError(f"Unrecognized dtype {dtype_str}")
+    else:
+        return dtype_str
+
+
+def initialize_affine_weight_gpu(weight, init_method, partition_dim, stride=1, rng_fork=True):
+    """Initialize affine weight for model parallel on GPU."""
+
+    weight.model_parallel = True
+    weight.partition_dim = partition_dim
+    weight.partition_stride = stride
+
+    if rng_fork:
+        with mpu.get_cuda_rng_tracker().fork():
+            init_method(weight)
+    else:
+        init_method(weight)
 
 
 def reduce_losses(losses):
@@ -36,14 +71,34 @@ def report_memory(name):
     mega_bytes = 1024.0 * 1024.0
     string = name + " memory (MB)"
     string += " | allocated: {}".format(torch.cuda.memory_allocated() / mega_bytes)
-    string += " | max allocated: {}".format(
-        torch.cuda.max_memory_allocated() / mega_bytes
-    )
+    string += " | max allocated: {}".format(torch.cuda.max_memory_allocated() / mega_bytes)
     string += " | reserved: {}".format(torch.cuda.memory_reserved() / mega_bytes)
-    string += " | max reserved: {}".format(
-        torch.cuda.max_memory_reserved() / mega_bytes
-    )
+    string += " | max reserved: {}".format(torch.cuda.max_memory_reserved() / mega_bytes)
     print_rank_0(string)
+
+
+def replace_nonDNA_tokens(batch, N=1):
+    valid_tokens = torch.tensor([65, 84, 67, 71, 0, 48], device=batch.device, dtype=batch.dtype)
+
+    # Create a boolean mask where valid tokens are True
+    valid_mask = (batch[..., None] == valid_tokens).any(-1)
+
+    # Replace invalid tokens with 'N'
+    batch[~valid_mask] = N
+    return batch
+
+
+def make_upper_case(tokens):
+    """
+    Replace lowercase ASCII characters with uppercase.
+    """
+    # tokens, labels, loss_mask, attention_mask, position_ids = batch
+
+    lowercase_mask = (tokens >= 97) & (tokens <= 122)
+    uppercase_tensor = tokens.clone()
+    uppercase_tensor[lowercase_mask] -= 32
+
+    return uppercase_tensor, lowercase_mask
 
 
 def get_attn_mask(seq_length, device):
@@ -59,27 +114,77 @@ def get_attn_mask(seq_length, device):
     return mask < 0.5
 
 
+def mask_helper(mask, prob):
+    ### adapted from lucidrains mlm_pytorch
+
+    batch, seq_len, device = *mask.shape, mask.device
+    max_masked = math.ceil(prob * seq_len)
+
+    num_tokens = mask.sum(dim=-1, keepdim=True)
+    mask_excess = mask.cumsum(dim=-1) > (num_tokens * prob).ceil()
+    mask_excess = mask_excess[:, :max_masked]
+
+    rand = torch.rand((batch, seq_len), device=device)
+    _, sampled_indices = rand.topk(max_masked, dim=-1)
+    sampled_indices = (sampled_indices + 1).masked_fill_(mask_excess, 0)
+
+    new_mask = torch.zeros((batch, seq_len + 1), device=device)
+    new_mask.scatter_(-1, sampled_indices, 1)
+    return new_mask[:, 1:].bool()
+
+
+def randomize_and_unmask(
+    masked_tokens, data, masking_indices, random_percent, unmask_percent, specific_values
+):
+    """MLM style randomization and unmasking of a set percent of masked tokens"""
+    device = masked_tokens.device
+    randomize_mask = torch.bernoulli(torch.full(masked_tokens.shape, random_percent, device=device)).bool()
+    randomize_mask = randomize_mask & masking_indices
+    keep_mask = torch.bernoulli(torch.full(masked_tokens.shape, unmask_percent, device=device)).bool()
+    keep_mask = keep_mask & masking_indices
+
+    # Replace % of masked with random tokens
+    indices = torch.randint(low=0, high=len(specific_values), size=masked_tokens.shape, device=device)
+    random_tokens = specific_values[indices]
+
+    masked_tokens[randomize_mask] = random_tokens[randomize_mask]
+
+    # Revert % of masked tokens which should be unchanged
+    masked_tokens[keep_mask] = data[keep_mask]
+
+    return masked_tokens
+
+
 def get_ltor_masks_and_position_ids(
     data,
     eod_token,
+    pad_token,
     eod_mask_loss=False,
+    pad_mask_loss=False,
+    materialize_attn_mask=True,
 ):
     """Build masks and position id for left to right model."""
 
     # Extract batch size and sequence length.
     batch_size, seq_length = data.size()
 
-    # Attention mask (lower triangular).
-    attention_mask = get_attn_mask(
-        seq_length=seq_length,
-        device=data.device,
-    )
+    if materialize_attn_mask:
+        # Attention mask (lower triangular).
+        attention_mask = get_attn_mask(
+            seq_length=seq_length,
+            device=data.device,
+        )
+    else:
+        # dummy, deepspeed expects a bool tensor returned
+        attention_mask = torch.tensor([True], dtype=torch.bool, device=data.device)
 
     # Loss mask.
     loss_mask = torch.ones(data.size(), dtype=torch.float, device=data.device)
+    # torch.ones(data.size(), dtype=torch.float, device=data.device)
     if eod_mask_loss:
         loss_mask[data == eod_token] = 0.0
-
+    if pad_mask_loss:
+        loss_mask[data == pad_token] = 0.0
     # Position ids.
     position_ids = torch.arange(seq_length, dtype=torch.long, device=data.device)
     position_ids = position_ids.unsqueeze(0).expand_as(data)
@@ -87,6 +192,221 @@ def get_ltor_masks_and_position_ids(
     return attention_mask, loss_mask, position_ids
 
 
+def get_mlm_masks(
+    data,
+    pad_token,
+    eod_token,
+    eod_mask_loss,
+    pad_mask_loss,
+    padded_vocab_size,
+    mask_percent=0.15,
+    random_percent=0.1,
+    unmask_percent=0.1,
+):
+    """
+    Generate masks, position ids, and an attention mask for MLM training.
+
+    Parameters:
+        data (torch.Tensor): Input tensor containing token IDs.
+        pad_token (int): Token ID used for padding.
+        eod_token (int): Token ID used for end of document.
+        eod_mask_loss (bool): Whether to mask the loss calculation at EOD tokens.
+        pad_mask_loss (bool): Whether to mask the loss calculation at PAD tokens.
+        padded_vocab_size (int): From global config, size of vocab for random tokens.
+        mask_percent(float): Percent of sequence to be masked
+        random_percentage (float): Percent of masked positions to be replaced with random tokens
+        unmask_percentage (float): Percent of masked positions to be replaced with original
+
+    Returns:
+        tuple: (masked_tokens, loss_mask, position_ids, attention_mask)
+    """
+
+    device = data.device
+
+    MASK_TOKEN_ID = 95  # underscore '_' is the mask token
+
+    # 4 DNA base pairs: 65, 84, 67, 71
+    # 20 Amino Acids, eos, pad: 0, 1, 65, 82, 78, 68, 67, 69, 81, 71, 72, 73, 76, 75, 77, 70, 80, 83, 84, 87, 89, 86
+    # ESM2 style specific_values = torch.tensor([0, 48, 65, 82, 78, 68, 67, 69, 81, 71, 72, 73, 76, 75, 77, 70, 80, 83, 84, 87, 89, 86, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], device = device)
+    specific_values = torch.arange(0, padded_vocab_size, device=device)
+    masked_tokens = data.clone()
+
+    masking_indices = mask_helper(masked_tokens, mask_percent)
+
+    if eod_mask_loss:
+        masking_indices[data == eod_token] = 0  # Ignore eod
+    if pad_mask_loss:
+        masking_indices[data == pad_token] = 0  # Ignore pad
+
+    # Set all masked positions to the mask token
+    masked_tokens[masking_indices] = MASK_TOKEN_ID
+
+    # Randomize and unmask a % of the masked tokens
+    masked_tokens = randomize_and_unmask(
+        masked_tokens, data, masking_indices, random_percent, unmask_percent, specific_values
+    )
+
+    # Generate position IDs
+    position_ids = torch.arange(data.size(1), dtype=torch.long, device=device)
+    position_ids = position_ids.unsqueeze(0).repeat(data.size(0), 1)
+
+    # Create attention_mask where True indicates the token should be attended to
+    if pad_mask_loss:
+        attention_mask = data != pad_token
+    else:
+        attention_mask = torch.ones(data.size(0), data.size(1), dtype=torch.bool, device=data.device)
+
+    # Loss mask where True indicates the token should have a loss
+    loss_mask = masking_indices
+    return masked_tokens, loss_mask, position_ids, attention_mask
+
+
+def get_span_masks(
+    data,
+    pad_token,
+    eod_token,
+    eod_mask_loss,
+    pad_mask_loss,
+    padded_vocab_size,
+    mask_percent=0.15,
+    p=0.2,
+    max_span=10,
+    randomize_unmask=False,
+    random_percent=0.1,
+    unmask_percent=0.1,
+):
+    """
+    Generate masks, position ids, and an attention mask for span masking training.
+
+    Parameters:
+        data (torch.Tensor): Input tensor containing token IDs.
+        pad_token (int): Token ID used for padding.
+        eod_token (int): Token ID used for end of document.
+        eod_mask_loss (bool): Whether to mask the loss calculation at EOD tokens.
+        pad_mask_loss (bool): Whether to mask the loss calculation at PAD tokens.
+        padded_vocab_size (int): From global config, size of vocab for random tokens.
+        mask_percent(float): Percent of sequence to be masked
+        p (float): Probability for the geometric distribution to sample span lengths.
+        max_span (int): Maximum span length to be masked.
+
+    Returns:
+        tuple: (masked_tokens, loss_mask, position_ids, attention_mask)
+    """
+
+    device = data.device
+    MASK_TOKEN_ID = 95  # underscore '_' is the mask token
+
+    data = replace_nonDNA_tokens(data)
+
+    length = data.size(1)
+    batch_size = data.size(0)
+
+    num_tokens_to_mask = int(mask_percent * length)
+
+    masked_tokens = data.clone()
+    loss_mask = torch.zeros(data.shape, dtype=torch.bool, device=device)
+    attention_mask = torch.ones(data.shape, dtype=torch.bool, device=device)
+
+    for i in range(batch_size):
+        num_masked = 0
+        while num_masked < num_tokens_to_mask:
+            span_length = min(torch.distributions.Geometric(torch.tensor([p])).sample().item(), max_span)
+            span_length = int(span_length)
+
+            if num_masked + span_length > num_tokens_to_mask:
+                span_length = num_tokens_to_mask - num_masked
+
+            start_idx = torch.randint(0, length - span_length + 1, (1,)).item()
+
+            masked_tokens[i, start_idx : start_idx + span_length] = MASK_TOKEN_ID
+            loss_mask[i, start_idx : start_idx + span_length] = 1
+            num_masked += span_length
+
+        if pad_mask_loss:
+            loss_mask[i][data[i] == pad_token] = 0
+            attention_mask[i][data[i] == pad_token] = 0
+
+        if eod_mask_loss:
+            loss_mask[i][data[i] == eod_token] = 0
+
+    if randomize_unmask:
+        # Randomize and unmask a % of the masked tokens
+        specific_values = torch.arange(0, padded_vocab_size, device=device)
+        mask_indices = masked_tokens == MASK_TOKEN_ID
+
+        masked_tokens = randomize_and_unmask(
+            masked_tokens, data, masking_indices, random_percent, unmask_percent, specific_values
+        )
+
+    # Generate position IDs
+    position_ids = torch.arange(length, dtype=torch.long, device=device)
+    position_ids = position_ids.unsqueeze(0).repeat(batch_size, 1)
+
+    return masked_tokens, loss_mask, position_ids, attention_mask
+
+
+def get_diffusion_mask(data, pad_token, eod_token, eod_mask_loss, pad_mask_loss):
+    """
+    Generate masks for order-agnostic autoregressive diffusion from Hoogeboom et al. 2021.
+
+    Parameters:
+        data (torch.Tensor): Input tensor containing token IDs.
+        pad_token (int): Token ID used for padding.
+        eod_token (int): Token ID used for end of document.
+        eod_mask_loss (bool): Whether to mask the loss calculation at EOD tokens.
+        pad_mask_loss (bool): Whether to mask the loss calculation at PAD tokens.
+
+    Returns:
+        tuple: (masked_tokens, loss_mask, position_ids, attention_mask)
+    """
+    device = data.device
+
+    MASK_TOKEN_ID = 95  # underscore '_' is the mask token
+
+    length = data.size(1)
+    batch_size = data.size(0)
+
+    masked_tokens = data
+
+    times = torch.randint(0, length, (batch_size,), dtype=torch.int64, device=device)
+    num_masks = length - times + 1
+
+    # 2d tensor of masks, random permutations, and then scatter back into the permuted positions
+    masking_indices = torch.zeros((batch_size, length), dtype=torch.bool, device=device)
+    perm = torch.argsort(torch.rand((batch_size, length), device=device), dim=1)
+    mask_range = torch.arange(length, device=device).expand(batch_size, length)
+    mask = mask_range < num_masks.unsqueeze(1)
+    masking_indices.scatter_(1, perm, mask)
+
+    if eod_mask_loss:
+        masking_indices[masked_tokens == eod_token] = 0  # Ignore eod
+    if pad_mask_loss:
+        masking_indices[masked_tokens == pad_token] = 0  # Ignore pad
+
+    masked_tokens[masking_indices] = MASK_TOKEN_ID
+
+    loss_mask = masking_indices
+
+    if not pad_mask_loss:
+        attention_mask = data != pad_token
+    else:
+        attention_mask = torch.ones(data.size(0), data.size(1), dtype=torch.bool, device=device)
+
+    position_ids = torch.arange(data.size(1), dtype=torch.long, device=device)
+    position_ids = position_ids.unsqueeze(0).repeat(data.size(0), 1)
+
+    return masked_tokens, loss_mask, position_ids, attention_mask
+
+
+@cache
+def rank():
+    rank = os.environ.get("RANK")
+    if rank is not None:
+        rank = int(rank)
+    return rank
+
+
+@cache
 def local_rank():
     """Local rank of process"""
     local_rank = os.environ.get("LOCAL_RANK")
@@ -103,9 +423,26 @@ def local_rank():
     return int(local_rank)
 
 
+@cache
+def run_id():
+    # TODO: create this in the launcher process, and inherit in launched processes
+    key = 'SAVANNA_RUN_ID'
+    if key not in os.environ:
+        # generate a new run id based on datetime
+        os.environ[key] = datetime.datetime.now().strftime('%Y%m%d%H%M%S')
+    return os.environ[key]
+
+
 def is_bnb_available():
     """True if bitsandbytes optimizers are available"""
     return importlib.util.find_spec("bitsandbytes") is not None
+
+
+def is_main():
+    """True if is rank 0"""
+    r = rank()
+    assert r is not None
+    return r == 0
 
 
 def is_local_main():
@@ -137,15 +474,14 @@ def init_wandb(global_config):
         return
 
     if not global_config.wandb_init_all_ranks:
-        use_wandb = is_local_main() and (
-            get_wandb_api_key(global_config=global_config) is not None
-        )
+        use_wandb = is_main() and (get_wandb_api_key(global_config=global_config) is not None)
         global_config.update_value("use_wandb", use_wandb)
     if global_config.use_wandb:
         group_name = global_config.wandb_group
-        name = f"{socket.gethostname()}-{local_rank()}" if group_name else None
+        name = run_id() if group_name else None
         try:
             wandb.init(
+                id=run_id(),
                 project=global_config.wandb_project,
                 group=group_name,
                 name=name,
@@ -164,14 +500,12 @@ def init_wandb(global_config):
         wandb.config.update(global_config.all_config, allow_val_change=True)
 
 
-def obtain_resource_pool(
-    hostfile_path, include_arg, exclude_arg
-) -> Dict[str, List[int]]:
+def obtain_resource_pool(hostfile_path, include_arg, exclude_arg) -> Dict[str, List[int]]:
     """
     Get dict of `resource_pool[hostname] = [list of GPU ranks]` using hostfile, include and exclude args.
     Modified from: `deepspeed.launcher.runner.main`
     """
-    resource_pool = fetch_hostfile(hostfile_path)
+    resource_pool = runner.fetch_hostfile(hostfile_path)
     if not resource_pool:
         resource_pool = {}
         device_count = torch.cuda.device_count()
@@ -179,9 +513,7 @@ def obtain_resource_pool(
             raise RuntimeError("Unable to proceed, no GPU resources available")
         resource_pool["localhost"] = device_count
 
-    active_resources = parse_inclusion_exclusion(
-        resource_pool, include_arg, exclude_arg
-    )
+    active_resources = runner.parse_inclusion_exclusion(resource_pool, include_arg, exclude_arg)
     return active_resources
 
 
@@ -292,12 +624,12 @@ class Timers:
             print(string, flush=True)
 
 
-def expand_attention_types(attention_config, num_layers):
+def expand_operator_types(operator_config, num_layers):
     """
-    Expands an `attention_config` list in the following format:
+    Expands an `operator_config` list in the following format:
 
         [
-        [['attention_type_1', ..., `attention_type_n`], 12]
+        [['operator_type_1', ..., `operator_type_n`], 12]
         ]
 
     to a flattened list of length `num_layers`.
@@ -306,15 +638,14 @@ def expand_attention_types(attention_config, num_layers):
     :return:
     """
     # if only strings are found in the config, we assume it's already expanded
-    if all([isinstance(i, str) for i in attention_config]):
-        return attention_config
+    if all([isinstance(i, str) for i in operator_config]):
+        return operator_config
     newlist = []
-    for item in attention_config:
+    for item in operator_config:
         # instead of specifying a number - we can specify 'all' to extend this pattern across all layers
         if item[1] == "all":
             assert num_layers % len(item[0]) == 0, (
-                f"Number of layers ({num_layers}) is not divisible by the length "
-                f"of pattern: {item[0]}"
+                f"Number of layers ({num_layers}) is not divisible by the length " f"of pattern: {item[0]}"
             )
             return item[0] * (num_layers // len(item[0]))
         for _ in range(item[1]):
@@ -323,7 +654,6 @@ def expand_attention_types(attention_config, num_layers):
 
 
 class OverflowMonitor:
-
     """
     Checks if the past n iterations have been skipped due to overflow, and exits
     training if that happens.
@@ -336,14 +666,8 @@ class OverflowMonitor:
 
     def check(self, skipped):
         self.history.append(skipped)
-        if (
-            self.optimizer.overflow
-            and len(self.history) == self.n
-            and all(self.history)
-        ):
-            raise Exception(
-                f"Skipped {self.n} iterations in a row due to Overflow - Exiting training."
-            )
+        if self.optimizer.overflow and len(self.history) == self.n and all(self.history):
+            raise Exception(f"Skipped {self.n} iterations in a row due to Overflow - Exiting training.")
 
 
 def get_noise_scale_logger(global_config):
@@ -398,7 +722,7 @@ def setup_for_inference_or_eval(
         Optional Values to overwrite in the model config.
     """
 
-    from savanna.neox_arguments import GlobalConfig
+    from savanna.arguments import GlobalConfig
     from savanna.initialize import initialize_megatron
     from savanna.training import setup_model_and_optimizer
 
@@ -410,9 +734,7 @@ def setup_for_inference_or_eval(
     }
     if overwrite_values:
         _overwrite_values.update(overwrite_values)
-    global_config = GlobalConfig.consume_global_config(
-        overwrite_values=_overwrite_values
-    )
+    global_config = GlobalConfig.consume_global_config(overwrite_values=_overwrite_values)
     global_config.configure_distributed_args()
     global_config.build_tokenizer()
 

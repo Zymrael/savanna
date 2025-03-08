@@ -1,0 +1,61 @@
+# Minimal config to test checkpointing.
+{
+  "pipe_parallel_size": 1,
+  "model_parallel_size": 1,
+  "make_vocab_size_divisible_by": 8,
+
+  "train_micro_batch_size_per_gpu": 1,
+  "gradient_accumulation_steps": 1,
+
+  "num_layers": 2,
+  "hidden_size": 16,
+  "num_attention_heads": 8,
+  "num_heads": 8,
+  "operator-config": [[["hyena"], 1], [["flash_v2"], 1]],
+  "seq_length": 32,
+  "max_position_embeddings": 32,
+
+  "hyena_filter_cls": "implicit_real_modal",
+  "pos_emb": "rotary",
+  "rotary_pct": 1,
+  "prenorm": true,
+  "postnorm": false,
+  "pre_mlp_norm": true,  
+  "outer_mlp_norm": false,
+  "no_weight_tying": false,
+  "gpt_j_residual": false,
+  "normalize_hyena_filters": false,
+  "short-conv-L": 3, 
+  "hyena_filter_fast_decay": 0.3,
+  "hyena_filter_slow_decay": 1.2,
+  "hyena_filter_w": 10, 
+  "hyena_filter_order": 16,
+  "hyena_filter_wd": 0.,
+  "norm": "rmsnorm",
+  "use_fast_heads": false,
+  "use_slow_heads": false,
+  "use-hyena-filter": true,
+  "output_layer_parallelism": "column",
+  "bias_dropout_fusion": false,
+  "rms_norm_epsilon": 1.0e-6,
+  "identity_mlp": false,
+  "mlp_type": "llama",
+  "scaled-upper-triang-masked-softmax-fusion": true,
+  "bias-gelu-fusion": false,
+
+    "deepspeed_extra_args": {
+      "data_types": 
+        { "grad_accum_dtype": "fp32"},
+        "load_universal_checkpoint": False,
+    },
+    
+  "train-iters": 15,
+  "eval-interval": 1,
+  "eval-iters": 5,
+  "iteration": 0,
+
+  "data-impl": "mmap",
+  "tokenizer_type": CharLevelTokenizer,
+
+  "checkpoint_factor": 500,
+}

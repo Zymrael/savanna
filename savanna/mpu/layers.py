@@ -1,9 +1,4 @@
-# Parts of the code here are adapted from PyTorch
-# repo: https://github.com/pytorch/pytorch
-
-
 import math
-
 import torch
 import torch.nn.functional as F
 import torch.nn.init as init
@@ -15,10 +10,14 @@ from .mappings import copy_to_model_parallel_region
 from .mappings import gather_from_model_parallel_region
 from .mappings import reduce_from_model_parallel_region
 from .mappings import scatter_to_model_parallel_region
+from .mappings import reduce_scatter_to_sequence_parallel_region
+from .mappings import gather_from_sequence_parallel_region
 from .random import get_cuda_rng_tracker
 from .utils import divide
 from .utils import VocabUtility
 from functools import partial
+
+from savanna.utils import get_dtype_from_string
 
 
 def _initialize_affine_weight_gpu(weight, init_method, partition_dim, stride=1):
@@ -53,17 +52,13 @@ def _initialize_affine_weight_cpu(
     weight.partition_stride = stride
 
     # Initialize master weight
-    master_weight = torch.empty(
-        output_size, input_size, dtype=torch.float, requires_grad=False
-    )
+    master_weight = torch.empty(output_size, input_size, dtype=torch.float, requires_grad=False)
     init_method(master_weight)
     master_weight = master_weight.to(dtype=global_config.params_dtype)
 
     # Split and copy
     per_partition_per_stride_size = divide(per_partition_size, stride)
-    weight_list = torch.split(
-        master_weight, per_partition_per_stride_size, dim=partition_dim
-    )
+    weight_list = torch.split(master_weight, per_partition_per_stride_size, dim=partition_dim)
     rank = get_model_parallel_rank()
     world_size = get_model_parallel_world_size()
     my_weight_list = weight_list[rank::world_size]
@@ -112,9 +107,7 @@ class VocabParallelEmbedding(torch.nn.Module):
         ) = VocabUtility.vocab_range_from_global_vocab_size(
             self.num_embeddings, get_model_parallel_rank(), self.model_parallel_size
         )
-        self.num_embeddings_per_partition = (
-            self.vocab_end_index - self.vocab_start_index
-        )
+        self.num_embeddings_per_partition = self.vocab_end_index - self.vocab_start_index
         self.init_method = init_method
 
         # Allocate weights and initialize.
@@ -144,9 +137,7 @@ class VocabParallelEmbedding(torch.nn.Module):
                     dtype=global_config.params_dtype,
                 )
             )
-            _initialize_affine_weight_gpu(
-                self.weight, init_method, partition_dim=0, stride=1
-            )
+            _initialize_affine_weight_gpu(self.weight, init_method, partition_dim=0, stride=1)
 
     def mup_reinitialize_weights(self, global_config):
         if global_config.use_cpu_initialization:
@@ -170,9 +161,7 @@ class VocabParallelEmbedding(torch.nn.Module):
     def forward(self, input_):
         if self.model_parallel_size > 1:
             # Build the mask.
-            input_mask = (input_ < self.vocab_start_index) | (
-                input_ >= self.vocab_end_index
-            )
+            input_mask = (input_ < self.vocab_start_index) | (input_ >= self.vocab_end_index)
             # Mask the input.
             masked_input = input_.clone() - self.vocab_start_index
             masked_input[input_mask] = 0
@@ -271,9 +260,7 @@ class ParallelRelativePositionBias(torch.nn.Module):
                     dtype=global_config.params_dtype,
                 )
             )
-            _initialize_affine_weight_gpu(
-                self.weight, init_method, partition_dim=1, stride=1
-            )
+            _initialize_affine_weight_gpu(self.weight, init_method, partition_dim=1, stride=1)
         self._q_len_cached = None
         self._k_len_cached = None
         self._rel_pos_bucket_cached = None
@@ -304,9 +291,7 @@ class ParallelRelativePositionBias(torch.nn.Module):
         index_l = index_f + per_partition_n_heads
         return index_f, index_l
 
-    def _relative_position_bucket(
-        self, relative_position, num_buckets=32, max_distance=128
-    ):
+    def _relative_position_bucket(self, relative_position, num_buckets=32, max_distance=128):
         ret = 0
         n = -relative_position
         if not self.causal:
@@ -327,9 +312,7 @@ class ParallelRelativePositionBias(torch.nn.Module):
                 * (num_buckets - max_exact)
             ).long()
         )
-        val_if_large = torch.min(
-            val_if_large, torch.full_like(val_if_large, num_buckets - 1)
-        )
+        val_if_large = torch.min(val_if_large, torch.full_like(val_if_large, num_buckets - 1))
 
         ret += torch.where(is_small, n, val_if_large)
         self._rel_pos_bucket_cached = ret
@@ -339,12 +322,8 @@ class ParallelRelativePositionBias(torch.nn.Module):
         if self._q_len_cached != q_len or self._k_len_cached != k_len:
             # cache bucket if first step seq len stays constant
             self._q_len_cached, self._k_len_cached = q_len, k_len
-            q_pos = torch.arange(
-                q_len, dtype=torch.long, device=torch.cuda.current_device()
-            )
-            k_pos = torch.arange(
-                k_len, dtype=torch.long, device=torch.cuda.current_device()
-            )
+            q_pos = torch.arange(q_len, dtype=torch.long, device=torch.cuda.current_device())
+            k_pos = torch.arange(k_len, dtype=torch.long, device=torch.cuda.current_device())
             rel_pos = k_pos[None, :] - q_pos[:, None]
             rp_bucket = self._relative_position_bucket(
                 rel_pos, num_buckets=self.num_buckets, max_distance=self.max_distance
@@ -400,9 +379,11 @@ class ColumnParallelLinear(torch.nn.Module):
         keep_master_weight_for_test=False,
         skip_bias_add=False,
         mup_rescale_parameters=False,
+        seq_dim=0,  # Dimension which is the seq_len dimension. final ParallelLinear overrides this to be 1 ; otherwise, the default is used throughout.
     ):
         super(ColumnParallelLinear, self).__init__()
 
+        params_dtype = get_dtype_from_string(global_config.params_dtype)
         # Keep input parameters
         self.input_size = input_size
         self.output_size = output_size
@@ -411,6 +392,10 @@ class ColumnParallelLinear(torch.nn.Module):
         world_size = get_model_parallel_world_size()
         self.output_size_per_partition = divide(output_size, world_size)
         self.skip_bias_add = skip_bias_add
+
+        self.sequence_parallel = global_config.sequence_parallel
+        self.seq_dim = seq_dim
+
         self.init_method = init_method
         self.stride = stride
         self.mup_rescale_parameters = mup_rescale_parameters
@@ -425,7 +410,7 @@ class ColumnParallelLinear(torch.nn.Module):
                 torch.empty(
                     self.output_size_per_partition,
                     self.input_size,
-                    dtype=global_config.params_dtype,
+                    dtype=params_dtype,
                 )
             )
             self.master_weight = _initialize_affine_weight_cpu(
@@ -445,26 +430,20 @@ class ColumnParallelLinear(torch.nn.Module):
                     self.output_size_per_partition,
                     self.input_size,
                     device=torch.cuda.current_device(),
-                    dtype=global_config.params_dtype,
+                    dtype=params_dtype,
                 )
             )
-            _initialize_affine_weight_gpu(
-                self.weight, init_method, partition_dim=0, stride=stride
-            )
+            _initialize_affine_weight_gpu(self.weight, init_method, partition_dim=0, stride=stride)
 
         if bias:
             if global_config.use_cpu_initialization:
-                self.bias = Parameter(
-                    torch.empty(
-                        self.output_size_per_partition, dtype=global_config.params_dtype
-                    )
-                )
+                self.bias = Parameter(torch.empty(self.output_size_per_partition, dtype=params_dtype))
             else:
                 self.bias = Parameter(
                     torch.empty(
                         self.output_size_per_partition,
                         device=torch.cuda.current_device(),
-                        dtype=global_config.params_dtype,
+                        dtype=params_dtype,
                     )
                 )
             self.bias.model_parallel = True
@@ -535,17 +514,34 @@ class ColumnParallelLinear(torch.nn.Module):
     def forward(self, input_):
         if self.use_mup and self.mup_rescale_parameters:
             input_ /= self.width_mult()
-        # Set up backprop all-reduce.
-        input_parallel = copy_to_model_parallel_region(input_)
 
+
+        if self.sequence_parallel:
+            input_parallel = input_
+        else:
+            # Set up backprop all-reduce.
+            input_parallel = copy_to_model_parallel_region(input_)
         # Matrix multiply.
+
+        if self.sequence_parallel:
+            # do an AG in the fwd pass, RS in bwd pass.
+            # gather / scatter portion happens across the sequence dim (self.seq_dim)--
+            # almost always is [s, b, h] and so dim 0, but for lm_head ParallelLinear it is seq_dim=1 and [b, s, h]
+            input_parallel = gather_from_sequence_parallel_region(
+                input_parallel, seq_dim=self.seq_dim
+            )
+
         bias = self.bias if not self.skip_bias_add else None
         output_parallel = F.linear(input_parallel, self.weight, bias)
         if self.gather_output:
             # All-gather across the partitions.
+            assert (
+                not self.sequence_parallel
+            ), "sequence_parallel=True and gather_output=True are incompatible!"
             output = gather_from_model_parallel_region(output_parallel)
         else:
             output = output_parallel
+        output_bias = self.bias if self.skip_bias_add else None
         output_bias = self.bias if self.skip_bias_add else None
         return output, output_bias
 
@@ -596,6 +592,8 @@ class RowParallelLinear(torch.nn.Module):
     ):
         super(RowParallelLinear, self).__init__()
 
+        params_dtype = get_dtype_from_string(global_config.params_dtype)
+
         # Keep input parameters
         self.input_size = input_size
         self.output_size = output_size
@@ -605,6 +603,12 @@ class RowParallelLinear(torch.nn.Module):
         self.input_size_per_partition = divide(input_size, world_size)
         self.skip_bias_add = skip_bias_add
         self.parallel_output = parallel_output
+
+        self.sequence_parallel = global_config.sequence_parallel
+        assert not (
+            self.sequence_parallel and not self.input_is_parallel
+        ), "Cannot have self.input_is_parallel=False and self.sequence_parallel=True."
+
         self.init_method = init_method
         self.stride = stride
         self.keep_master_weight_for_test = keep_master_weight_for_test
@@ -620,7 +624,7 @@ class RowParallelLinear(torch.nn.Module):
                 torch.empty(
                     self.output_size,
                     self.input_size_per_partition,
-                    dtype=global_config.params_dtype,
+                    dtype=params_dtype,
                 )
             )
             self.master_weight = _initialize_affine_weight_cpu(
@@ -640,23 +644,19 @@ class RowParallelLinear(torch.nn.Module):
                     self.output_size,
                     self.input_size_per_partition,
                     device=torch.cuda.current_device(),
-                    dtype=global_config.params_dtype,
+                    dtype=params_dtype,
                 )
             )
-            _initialize_affine_weight_gpu(
-                self.weight, init_method, partition_dim=1, stride=stride
-            )
+            _initialize_affine_weight_gpu(self.weight, init_method, partition_dim=1, stride=stride)
         if bias:
             if global_config.use_cpu_initialization:
-                self.bias = Parameter(
-                    torch.empty(self.output_size, dtype=global_config.params_dtype)
-                )
+                self.bias = Parameter(torch.empty(self.output_size, dtype=params_dtype))
             else:
                 self.bias = Parameter(
                     torch.empty(
                         self.output_size,
                         device=torch.cuda.current_device(),
-                        dtype=global_config.params_dtype,
+                        dtype=params_dtype,
                     )
                 )
             # Always initialize bias to zero.
@@ -730,7 +730,12 @@ class RowParallelLinear(torch.nn.Module):
         # Matrix multiply.
         output_parallel = F.linear(input_parallel, self.weight)
         # All-reduce across all the partitions.
-        if not self.parallel_output:
+        if self.sequence_parallel and not self.parallel_output:
+            # do an RS in the fwd pass, AG in bwd pass.
+            # skip in the gpt-j parallel sublayer case (self.parallel_output=True)
+            # (user responsible for calling reduce-scatter)
+            output_ = reduce_scatter_to_sequence_parallel_region(output_parallel)
+        elif not self.parallel_output:
             output_ = reduce_from_model_parallel_region(output_parallel)
         else:
             output_ = output_parallel

@@ -6,9 +6,9 @@ import os
 import json
 
 import torch
-from savanna.model.gpt2_model import GPT2ModelPipe
-from savanna.neox_arguments.global_config import *
-from savanna.neox_arguments import GlobalConfig
+from savanna.model.backbone import BackbonePipe
+from savanna.arguments.global_config import *
+from savanna.arguments import GlobalConfig
 from savanna.initialize import initialize_megatron
 from savanna.tokenizer import build_tokenizer
 import deepspeed
@@ -39,7 +39,7 @@ def load_checkpoint(model_cfg, to_sequential=False):
     deepspeed.init_distributed(dist_backend="nccl")
     initialize_megatron(args)
 
-    model = GPT2ModelPipe(args, num_tokentypes=0, parallel_output=True)
+    model = BackbonePipe(args, num_tokentypes=0, parallel_output=True)
     if to_sequential:
         model = model.to_sequential()
 

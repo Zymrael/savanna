@@ -27,10 +27,7 @@ _conj = lambda x: torch.cat([x, x.conj()], dim=-1)
 
 def _broadcast_dims(*tensors):
     max_dim = max([len(tensor.shape) for tensor in tensors])
-    tensors = [
-        tensor.view((1,) * (max_dim - len(tensor.shape)) + tensor.shape)
-        for tensor in tensors
-    ]
+    tensors = [tensor.view((1,) * (max_dim - len(tensor.shape)) + tensor.shape) for tensor in tensors]
     return tensors
 
 
@@ -51,10 +48,8 @@ def vandermonde_naive(v, x, L, conj=True):
     if conj:
         x = _conj(x)
         v = _conj(v)
-    vandermonde_matrix = x.unsqueeze(-1) ** torch.arange(L).to(x)  # (... N L)
-    vandermonde_prod = torch.sum(
-        v.unsqueeze(-1) * vandermonde_matrix, dim=-2
-    )  # (... L)
+    vandermonde_matrix = x.unsqueeze(-1) ** torch.arange(L, device=x.device).type_as(x)  # (... N L)
+    vandermonde_prod = torch.sum(v.unsqueeze(-1) * vandermonde_matrix, dim=-2)  # (... L)
     return vandermonde_prod
 
 
@@ -64,10 +59,8 @@ def log_vandermonde_naive(v, x, L, conj=True):
     x: (..., N)
     returns: (..., L) \sum v x^l
     """
-    vandermonde_matrix = torch.exp(x.unsqueeze(-1) * torch.arange(L).to(x))  # (... N L)
-    vandermonde_prod = contract(
-        "... n, ... n l -> ... l", v, vandermonde_matrix
-    )  # (... L)
+    vandermonde_matrix = torch.exp(x.unsqueeze(-1) * torch.arange(L, device=x.device).type_as(x))  # (... N L)
+    vandermonde_prod = contract("... n, ... n l -> ... l", v, vandermonde_matrix)  # (... L)
     if conj:
         return 2 * vandermonde_prod.real
     else:
@@ -78,7 +71,7 @@ def log_vandermonde_lazy(v, x, L, conj=True):
     if conj:
         v = _conj(v)
         x = _conj(x)
-    l = torch.arange(L).to(x)
+    l = torch.arange(L, device=x.device).type_as(x)
     v, x, l = _broadcast_dims(v, x, l)
     v_l = LazyTensor(rearrange(v, "... N -> ... N 1 1"))
     x_l = LazyTensor(rearrange(x, "... N -> ... N 1 1"))
@@ -102,7 +95,7 @@ def log_vandermonde(v, x, L, conj=True):
         axis=1,
     )
 
-    l = torch.arange(L).to(x)
+    l = torch.arange(L, device=x.device).type_as(x)
     v, x, l = _broadcast_dims(v, x, l)
     v = _c2r(v)
     x = _c2r(x)
@@ -116,7 +109,7 @@ def log_vandermonde(v, x, L, conj=True):
 
 
 def log_vandermonde_transpose_naive(u, v, x, L):
-    vandermonde_matrix = torch.exp(x.unsqueeze(-1) * torch.arange(L).to(x))  # (... N L)
+    vandermonde_matrix = torch.exp(x.unsqueeze(-1) * torch.arange(L, device=x.device).type_as(x))  # (... N L)
     vandermonde_prod = contract(
         "... l, ... n, ... n l -> ... n", u.to(x), v.to(x), vandermonde_matrix
     )  # (... L)
@@ -146,7 +139,7 @@ def log_vandermonde_transpose(u, v, x, L):
         axis=1,
     )
 
-    l = torch.arange(L).to(x)
+    l = torch.arange(L, device=x.device).type_as(x)
     u, v, x, l = _broadcast_dims(u, v, x, l)
     u = _c2r(u)
     v = _c2r(v)
@@ -158,7 +151,7 @@ def log_vandermonde_transpose(u, v, x, L):
 
 
 def _log_vandermonde_matmul(x, L):
-    vandermonde_matrix = torch.exp(x.unsqueeze(-1) * torch.arange(L).to(x))  # (... N L)
+    vandermonde_matrix = torch.exp(x.unsqueeze(-1) * torch.arange(L, device=x.device).type_as(x))  # (... N L)
     return vandermonde_matrix
 
 

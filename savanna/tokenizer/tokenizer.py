@@ -1,10 +1,10 @@
 """Megatron tokenizers."""
-
 from abc import ABC
 from abc import abstractmethod
 
 from tokenizers import Tokenizer
-from transformers import GPT2Tokenizer, GPT2TokenizerFast
+
+# from transformers import GPT2Tokenizer, GPT2TokenizerFast
 import numpy as np
 import sentencepiece as spm
 from typing import List, Union
@@ -29,9 +29,7 @@ def build_tokenizer(args):
         tokenizer = HFTokenizer(args.vocab_file)
     elif args.tokenizer_type.lower() == "HFGPT2Tokenizer".lower():
         if args.vocab_file is None:
-            print(
-                "WARNING: No vocab file found, loading Huggingface's pretrained GPT2Tokenizer"
-            )
+            print("WARNING: No vocab file found, loading Huggingface's pretrained GPT2Tokenizer")
         tokenizer = HFGPT2Tokenizer(args.vocab_file)
     elif args.tokenizer_type.lower() == "CharLevelTokenizer".lower():
         tokenizer = CharLevelTokenizer(vocab_size=512)
@@ -39,9 +37,7 @@ def build_tokenizer(args):
         assert args.vocab_file is not None
         tokenizer = TiktokenTokenizer(args.vocab_file)
     else:
-        raise NotImplementedError(
-            "{} tokenizer is not " "implemented.".format(args.tokenizer_type)
-        )
+        raise NotImplementedError("{} tokenizer is not " "implemented.".format(args.tokenizer_type))
 
     # Add vocab size.
     args.padded_vocab_size = _vocab_size_with_padding(tokenizer.vocab_size, args)
@@ -95,39 +91,27 @@ class AbstractTokenizer(ABC):
         pass
 
     def detokenize(self, token_ids):
-        raise NotImplementedError(
-            "detokenizer is not implemented for {} " "tokenizer".format(self.name)
-        )
+        raise NotImplementedError("detokenizer is not implemented for {} " "tokenizer".format(self.name))
 
     @property
     def cls(self):
-        raise NotImplementedError(
-            "CLS is not provided for {} " "tokenizer".format(self.name)
-        )
+        raise NotImplementedError("CLS is not provided for {} " "tokenizer".format(self.name))
 
     @property
     def sep(self):
-        raise NotImplementedError(
-            "SEP is not provided for {} " "tokenizer".format(self.name)
-        )
+        raise NotImplementedError("SEP is not provided for {} " "tokenizer".format(self.name))
 
     @property
     def pad(self):
-        raise NotImplementedError(
-            "PAD is not provided for {} " "tokenizer".format(self.name)
-        )
+        raise NotImplementedError("PAD is not provided for {} " "tokenizer".format(self.name))
 
     @property
     def eod(self):
-        raise NotImplementedError(
-            "EOD is not provided for {} " "tokenizer".format(self.name)
-        )
+        raise NotImplementedError("EOD is not provided for {} " "tokenizer".format(self.name))
 
     @property
     def mask(self):
-        raise NotImplementedError(
-            "MASK is not provided for {} " "tokenizer".format(self.name)
-        )
+        raise NotImplementedError("MASK is not provided for {} " "tokenizer".format(self.name))
 
 
 class _GPT2BPETokenizer(AbstractTokenizer):
@@ -181,17 +165,11 @@ class SentencePieceTokenizer(AbstractTokenizer):
 
     @property
     def vocab(self):
-        return {
-            self.tokenizer.id_to_piece(idx): idx
-            for idx in range(self.tokenizer.get_piece_size())
-        }
+        return {self.tokenizer.id_to_piece(idx): idx for idx in range(self.tokenizer.get_piece_size())}
 
     @property
     def inv_vocab(self):
-        return {
-            idx: self.tokenizer.id_to_piece(idx)
-            for idx in range(self.tokenizer.get_piece_size())
-        }
+        return {idx: self.tokenizer.id_to_piece(idx) for idx in range(self.tokenizer.get_piece_size())}
 
     def tokenize(self, text):
         return self.tokenizer.encode(text)
@@ -240,52 +218,60 @@ class HFTokenizer(AbstractTokenizer):
     def eod(self):
         return self.eod_id
 
-
-class HFGPT2Tokenizer(AbstractTokenizer):
-    """Designed to Integrate the pretrained OpenAI GPT2 Tokenizers from HF"""
-
-    def __init__(self, vocab_file=None, fast=True):
-        name = "HFGPT2Tokenizer"
-        if fast:
-            name += "Fast"
-        super().__init__(name)
-        if vocab_file is None:
-            vocab_file = "gpt2"
-        if fast:
-            self.tokenizer = GPT2TokenizerFast.from_pretrained(vocab_file)
-        else:
-            self.tokenizer = GPT2Tokenizer.from_pretrained(vocab_file)
-
-        self.tokenizer.add_special_tokens({"pad_token": "<|padding|>"})
-        self.eod_id = self.tokenizer.eos_token_id
-        self.pad_id = self.tokenizer.pad_token_id
-
     @property
-    def vocab_size(self):
-        return len(self.tokenizer)
+    def pad(self):
+        return self.pad_id
 
-    @property
-    def vocab(self):
-        return self.tokenizer.get_vocab()
 
-    @property
-    def inv_vocab(self):
-        return self.tokenizer._tokenizer.decoder
+# class HFGPT2Tokenizer(AbstractTokenizer):
+#     """Designed to Integrate the pretrained OpenAI GPT2 Tokenizers from HF"""
 
-    def tokenize(self, text: str):
-        return self.tokenizer.encode(text)
+#     def __init__(self, vocab_file=None, fast=True):
+#         name = "HFGPT2Tokenizer"
+#         if fast:
+#             name += "Fast"
+#         super().__init__(name)
+#         if vocab_file is None:
+#             vocab_file = "gpt2"
+#         if fast:
+#             self.tokenizer = GPT2TokenizerFast.from_pretrained(vocab_file)
+#         else:
+#             self.tokenizer = GPT2Tokenizer.from_pretrained(vocab_file)
 
-    def tokenize_batch(self, text_batch: Union[List[str], str]):
-        if isinstance(text_batch, str):
-            text_batch = [text_batch]
-        return [self.tokenize(t) for t in text_batch]
+#         self.tokenizer.add_special_tokens({"pad_token": "<|padding|>"})
+#         self.eod_id = self.tokenizer.eos_token_id
+#         self.pad_id = self.tokenizer.pad_token_id
 
-    def detokenize(self, token_ids):
-        return self.tokenizer.decode(token_ids)
+#     @property
+#     def vocab_size(self):
+#         return len(self.tokenizer)
 
-    @property
-    def eod(self):
-        return self.eod_id
+#     @property
+#     def vocab(self):
+#         return self.tokenizer.get_vocab()
+
+#     @property
+#     def inv_vocab(self):
+#         return self.tokenizer._tokenizer.decoder
+
+#     def tokenize(self, text: str):
+#         return self.tokenizer.encode(text)
+
+#     def tokenize_batch(self, text_batch: Union[List[str], str]):
+#         if isinstance(text_batch, str):
+#             text_batch = [text_batch]
+#         return [self.tokenize(t) for t in text_batch]
+
+#     def detokenize(self, token_ids):
+#         return self.tokenizer.decode(token_ids)
+
+#     @property
+#     def eod(self):
+#         return self.eod_id
+
+#     @property
+#     def pad(self):
+#         return self.pad_id
 
 
 class CharLevelTokenizer(AbstractTokenizer):
@@ -332,6 +318,10 @@ class CharLevelTokenizer(AbstractTokenizer):
     def eod(self):
         return self.eod_id
 
+    @property
+    def pad(self):
+        return self.pad_id
+
 
 class TiktokenTokenizer(AbstractTokenizer):
     """Tokenizer from OpenAI's tiktoken implementation"""
@@ -356,9 +346,7 @@ class TiktokenTokenizer(AbstractTokenizer):
 
     @property
     def vocab(self):
-        raise NotImplementedError(
-            "TiktokenTokenizer does not implement vocabulary access."
-        )
+        raise NotImplementedError("TiktokenTokenizer does not implement vocabulary access.")
 
     @property
     def inv_vocab(self):

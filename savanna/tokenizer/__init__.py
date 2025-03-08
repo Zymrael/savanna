@@ -13,4 +13,4 @@
 # limitations under the License.
 
 
-from .tokenizer import build_tokenizer
+from .tokenizer import build_tokenizer, CharLevelTokenizer

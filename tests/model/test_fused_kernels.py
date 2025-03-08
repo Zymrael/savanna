@@ -1,5 +1,4 @@
 import math
-
 import torch
 
 from transformers import BertTokenizer
@@ -29,7 +28,7 @@ def test_load_fused_kernels():
 
 def test_fused_softmax():
     from savanna.model.fused_softmax import FusedScaleMaskSoftmax, SoftmaxFusionTypes
-    from savanna.model.gpt2_model import (
+    from savanna.model.backbone import (
         gpt2_attention_mask_func as attention_mask_func,
     )
 
@@ -129,7 +128,7 @@ def test_fused_softmax():
 
 
 def test_fused_upper_triangle_mask_softmax():
-    from savanna.model.gpt2_model import (
+    from savanna.model.backbone import (
         gpt2_attention_mask_func as attention_mask_func,
     )
     from savanna.model.fused_softmax import FusedScaleMaskSoftmax, SoftmaxFusionTypes

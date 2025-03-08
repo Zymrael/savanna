@@ -1,0 +1,105 @@
+{
+  "pipe_parallel_size": 1,
+  "model_parallel_size": 1,
+  "make_vocab_size_divisible_by": 8,
+
+  # model settings
+  "num_layers": 24,
+  "hidden_size": 2048,
+  "num_attention_heads": 16,
+  "operator-config": [[["flash"], 24]],
+  "seq_length": 8192,
+  "max_position_embeddings": 8192,
+
+  "pos_emb": "rotary",
+  "rotary_pct": 1,
+  "prenorm": true,
+  "postnorm": true, 
+  "no_weight_tying": true,
+  "gpt_j_residual": false,
+  "output_layer_parallelism": "column",
+  "norm": "rmsnorm",
+  "rms_norm_epsilon": 1.0e-6,
+
+  "mlp_type": "llama",
+  "activation": "silu",
+
+   ############## misc optims
+   "scaled-upper-triang-masked-softmax-fusion": true,
+   "bias-gelu-fusion": true,
+
+   ############### init
+   "init_method": "small_init",
+   "output_layer_init_method": "wang_init",
+
+   ############## optimizer
+   "optimizer": {
+     "type": "Adam",
+     "params": {
+       "lr": 0.0002,
+       "betas": [0.9, 0.95],
+       "eps": 1.0e-8,
+     }
+   },
+   "min_lr": 0.00002,
+
+   ############### sys optims
+   "zero_optimization": {
+    "stage": 0,
+    "allgather_partitions": True,
+    "allgather_bucket_size": 500000000,
+    "overlap_comm": True,
+    "reduce_scatter": True,
+    "reduce_bucket_size": 500000000,
+    "contiguous_gradients": True,
+    "cpu_offload": false
+  },
+
+   ################# batch sizes
+   "train_micro_batch_size_per_gpu": 8,
+   "gradient_accumulation_steps": 2,
+   "data-impl": "mmap",
+   "num_workers": 1,
+
+   ################# act checkpointing
+   "checkpoint-activations": true,
+   "checkpoint-num-layers": 1,
+   "partition-activations": true,
+   "synchronize-each-layer": true,
+
+   ################# regularization
+   "gradient_clipping": 1.0,
+   "weight-decay": 0.1,
+   "hidden-dropout": 0.0,
+   "attention-dropout": 0.0,
+
+   ################ precision
+   "precision": "bfloat16",
+   "bf16": {
+   "enabled": true
+    },
+   
+   ################# training
+   "train-iters": 71500,
+   "lr-decay-iters": 71500,
+   "distributed-backend": "nccl",
+   "lr-decay-style": "cosine",
+   "warmup": 0.01,
+   "checkpoint-factor": 200,
+   "eval-interval": 3000,
+   "eval-iters": 10,
+
+   ################ logging
+   "log-interval": 500,
+   "steps_per_print": 500,
+   "keep-last-n-checkpoints": 4,
+   "wall_clock_breakdown": True,
+
+  "save": "/var/cr06_data/mpoli/checkpoints/1.4b_llama_8k_4m",
+  # "load": "1.4b_llama_8k_4m",
+  # "iteration": 820,
+  ################# networking
+  "hostfile": "./hostfile",
+  "launcher": "pdsh"
+}
+

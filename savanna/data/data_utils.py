@@ -8,7 +8,7 @@ from functools import partial
 from savanna import mpu, print_rank_0
 from savanna.data.indexed_dataset import make_dataset as make_indexed_dataset
 from savanna.data.blendable_dataset import BlendableDataset
-from savanna.data.gpt2_dataset import GPT2Dataset
+from savanna.data.sequence_dataset import SequenceDataset
 from savanna.data.samplers import DistributedBatchSampler
 
 
@@ -46,6 +46,8 @@ def build_the_dataset(
     seed,
     skip_warmup,
     build_index_mappings=True,
+    enforce_sample_length=False,
+    sample_dtype=np.int64,
 ):
     """Build train/valid/test datasets."""
 
@@ -55,8 +57,8 @@ def build_the_dataset(
     print_rank_0("    {}:".format(name))
     print_rank_0("     no. of documents:{}".format(total_num_of_documents))
     dataset = None
-    documents = np.arange(start=0, stop=total_num_of_documents, step=1, dtype=np.int32)
-    dataset = GPT2Dataset(
+    documents = np.arange(start=0, stop=total_num_of_documents, step=1, dtype=np.int64)
+    dataset = SequenceDataset(
         name,
         data_prefix,
         documents,
@@ -65,6 +67,8 @@ def build_the_dataset(
         seq_length,
         seed,
         build_index_mappings=build_index_mappings,
+        enforce_sample_length=enforce_sample_length,
+        sample_dtype=sample_dtype,
     )
     return dataset
 
@@ -78,6 +82,7 @@ def build_train_valid_test_datasets(
     seq_length,
     seed,
     skip_warmup,
+    enforce_sample_length=False,
 ):
     """Build train, valid, and test datasets."""
 
@@ -94,9 +99,7 @@ def build_train_valid_test_datasets(
         print_rank_0("    {}:".format(name))
         print_rank_0(
             "     document indices in [{}, {}) total of {} "
-            "documents".format(
-                splits[index], splits[index + 1], splits[index + 1] - splits[index]
-            )
+            "documents".format(splits[index], splits[index + 1], splits[index + 1] - splits[index])
         )
 
     print_split_stats("train", 0)
@@ -106,11 +109,9 @@ def build_train_valid_test_datasets(
     def build_dataset(index, name):
         dataset = None
         if splits[index + 1] > splits[index]:
-            documents = np.arange(
-                start=splits[index], stop=splits[index + 1], step=1, dtype=np.int32
-            )
+            documents = np.arange(start=splits[index], stop=splits[index + 1], step=1, dtype=np.int64)
 
-            dataset = GPT2Dataset(
+            dataset = SequenceDataset(
                 name,
                 data_prefix,
                 documents,
@@ -119,6 +120,7 @@ def build_train_valid_test_datasets(
                 seq_length,
                 seed,
                 use_shared_fs=use_shared_fs,
+                enforce_sample_length=enforce_sample_length,
             )
         return dataset
 
@@ -191,6 +193,17 @@ def build_weighted_datasets(
             global_config.test_data_paths,
         )
     ):
+        if global_config.alignment_method == "dpo":
+            assert (
+                global_config.dpo_data_seq_length is not None
+            ), "The dpo_data_seq_length parameter must be set when using DPO"
+            seq_length = global_config.dpo_data_seq_length
+            sample_dtype = np.float32
+            global_config.enforce_sample_length = True
+        else:
+            seq_length = global_config.seq_length
+            sample_dtype = np.int64
+
         if train_path:
             train_datasets.append(
                 build_the_dataset(
@@ -198,10 +211,12 @@ def build_weighted_datasets(
                     name=f"train_{i}",
                     data_impl=global_config.data_impl,
                     num_samples=train_num_samples[i],
-                    seq_length=global_config.seq_length,
+                    seq_length=seq_length,
                     seed=global_config.seed,
                     skip_warmup=(not global_config.mmap_warmup),
                     build_index_mappings=build_index_mappings,
+                    enforce_sample_length=global_config.enforce_sample_length,
+                    sample_dtype=sample_dtype,
                 )
             )
 
@@ -212,10 +227,12 @@ def build_weighted_datasets(
                     name=f"valid_{i}",
                     data_impl=global_config.data_impl,
                     num_samples=valid_num_samples[i],
-                    seq_length=global_config.seq_length,
+                    seq_length=seq_length,
                     seed=global_config.seed,
                     skip_warmup=(not global_config.mmap_warmup),
                     build_index_mappings=build_index_mappings,
+                    enforce_sample_length=global_config.enforce_sample_length,
+                    sample_dtype=sample_dtype,
                 )
             )
 
@@ -226,10 +243,12 @@ def build_weighted_datasets(
                     name=f"test_{i}",
                     data_impl=global_config.data_impl,
                     num_samples=test_num_samples[i],
-                    seq_length=global_config.seq_length,
+                    seq_length=seq_length,
                     seed=global_config.seed,
                     skip_warmup=(not global_config.mmap_warmup),
                     build_index_mappings=build_index_mappings,
+                    enforce_sample_length=global_config.enforce_sample_length,
+                    sample_dtype=sample_dtype,
                 )
             )
     return train_datasets, valid_datasets, test_datasets
@@ -282,9 +301,7 @@ def build_train_valid_test_data_iterators(global_config):
     # Ensure only the first/last pipeline stages have data loaders
     if global_config.is_pipe_parallel:
         is_first_stage = mpu.get_pipe_parallel_rank() == 0
-        is_last_stage = (
-            mpu.get_pipe_parallel_rank() == mpu.get_pipe_parallel_world_size() - 1
-        )
+        is_last_stage = mpu.get_pipe_parallel_rank() == mpu.get_pipe_parallel_world_size() - 1
         pipe_load = is_first_stage or is_last_stage
     else:
         pipe_load = True
@@ -293,15 +310,41 @@ def build_train_valid_test_data_iterators(global_config):
     if mpu.get_model_parallel_rank() == 0 and pipe_load:
         # Number of train/valid/test samples.
         train_iters = global_config.train_iters
-        eval_iters = (
-            train_iters // global_config.eval_interval + 1
-        ) * global_config.eval_iters
+        eval_iters = (train_iters // global_config.eval_interval + 1) * global_config.eval_iters
         test_iters = global_config.eval_iters
         train_val_test_num_samples = [
             train_iters * global_config.train_batch_size,
             eval_iters * global_config.train_batch_size,
             test_iters * global_config.train_batch_size,
         ]
+        if global_config.use_checkpoint_num_samples:
+            # This overrides the actual number of samples defined above with the number of
+            # samples saved in a loaded checkpoint. This is used to prevent re-indexing of
+            # the data loading index, which is (partially) defined by the number of samples
+            # along with the sequence length and the random seed.
+            if global_config.train_val_test_num_samples is None:
+                print_rank_0(
+                    "> WARNING: `use_checkpoint_num_samples` is set to True but these values "
+                    "were not found in the checkpoint, will recompute these values."
+                )
+            else:
+                if train_val_test_num_samples[0] > global_config.train_val_test_num_samples[0] or \
+                   train_val_test_num_samples[1] > global_config.train_val_test_num_samples[1] or \
+                   train_val_test_num_samples[2] > global_config.train_val_test_num_samples[2]:
+                    print_rank_0(
+                        "> WARNING (!!!): You are attempting to use an existing data index that "
+                        "has fewer samples than required by the current config. This will lead to "
+                        "a StopIteration error once the existing data index has been consumed.\n"
+                        "> Consider re-indexing by setting `use_checkpoint_num_samples` to False."
+                    )
+                if train_val_test_num_samples != global_config.train_val_test_num_samples:
+                    print_rank_0(
+                        "> Overriding the number of (train, val, test) samples specified by "
+                        f"the current config: {train_val_test_num_samples} with the values "
+                        f"stored in the checkpoint: {global_config.train_val_test_num_samples}."
+                    )
+                    train_val_test_num_samples = global_config.train_val_test_num_samples
+        global_config.train_val_test_num_samples = train_val_test_num_samples
 
         if global_config.train_data_paths:
             # when individual train / valid / test data paths are provided
@@ -340,9 +383,7 @@ def build_train_valid_test_data_iterators(global_config):
                 )
 
                 # builds weights according to alpha + the number of docs
-                fn = partial(
-                    weights_by_num_docs, alpha=global_config.weighted_sampler_alpha
-                )
+                fn = partial(weights_by_num_docs, alpha=global_config.weighted_sampler_alpha)
                 train_weights, valid_weights, test_weights = (
                     fn(train_num_docs),
                     fn(valid_num_docs),
@@ -351,15 +392,11 @@ def build_train_valid_test_data_iterators(global_config):
                 (
                     train_weights,
                     train_num_samples,
-                ) = get_normalized_weights_and_num_samples(
-                    train_weights, train_val_test_num_samples[0]
-                )
+                ) = get_normalized_weights_and_num_samples(train_weights, train_val_test_num_samples[0])
                 (
                     valid_weights,
                     valid_num_samples,
-                ) = get_normalized_weights_and_num_samples(
-                    valid_weights, train_val_test_num_samples[1]
-                )
+                ) = get_normalized_weights_and_num_samples(valid_weights, train_val_test_num_samples[1])
                 test_weights, test_num_samples = get_normalized_weights_and_num_samples(
                     test_weights, train_val_test_num_samples[2]
                 )
@@ -393,6 +430,7 @@ def build_train_valid_test_data_iterators(global_config):
                 seq_length=global_config.seq_length,
                 seed=global_config.seed,
                 skip_warmup=(not global_config.mmap_warmup),
+                enforce_sample_length=global_config.enforce_sample_length,
             )
 
         # Build dataloders.
@@ -426,26 +464,41 @@ def build_train_valid_test_data_iterators(global_config):
 
     # Shift the start iterations.
     if train_dataloader is not None:
-        train_dataloader.batch_sampler.start_iter = (
-            global_config.iteration * global_config.gradient_accumulation_steps
-        ) % len(train_dataloader)
-        print_rank_0(
-            "setting training data start iteration to {}".format(
-                train_dataloader.batch_sampler.start_iter
+        tokens_per_iteration = global_config.train_batch_size * global_config.seq_length
+        if global_config.train_data_token_index is None:
+            # Note that this will be *incorrect* if `global_config.train_data_token_index` has
+            # not been previously saved and if the number of iterations, grad accum, batch size,
+            # world size, or sequence length have been changed.
+            global_config.train_data_token_index = (
+                global_config.iteration *
+                global_config.gradient_accumulation_steps *
+                tokens_per_iteration
             )
+        if global_config.train_data_token_index % tokens_per_iteration != 0:
+            print_rank_0(
+                "WARNING: The cursor into the training data token index cannot be perfectly "
+                "achieved by the current configuration, will skip {} tokens."
+                .format(
+                    tokens_per_iteration -
+                    (global_config.train_data_token_index % tokens_per_iteration)
+                )
+            )
+        shifted_start_iter = int(math.ceil(global_config.train_data_token_index / tokens_per_iteration))
+        train_dataloader.batch_sampler.start_iter = shifted_start_iter % len(train_dataloader)
+        global_config.train_data_token_index = shifted_start_iter * tokens_per_iteration
+        print_rank_0(
+            "setting training data start iteration to {}"
+            .format(train_dataloader.batch_sampler.start_iter)
         )
+
     if valid_dataloader is not None:
         start_iter_val = (
             (global_config.iteration * global_config.gradient_accumulation_steps)
             // global_config.eval_interval
         ) * global_config.eval_iters
-        valid_dataloader.batch_sampler.start_iter = start_iter_val % len(
-            valid_dataloader
-        )
+        valid_dataloader.batch_sampler.start_iter = start_iter_val % len(valid_dataloader)
         print_rank_0(
-            "setting validation data start iteration to {}".format(
-                valid_dataloader.batch_sampler.start_iter
-            )
+            "setting validation data start iteration to {}".format(valid_dataloader.batch_sampler.start_iter)
         )
 
     # Build iterators.
@@ -475,9 +528,7 @@ def build_datasets_from_global_config(global_config):
     # Ensure only the first/last pipeline stages have data loaders
     if global_config.is_pipe_parallel:
         is_first_stage = mpu.get_pipe_parallel_rank() == 0
-        is_last_stage = (
-            mpu.get_pipe_parallel_rank() == mpu.get_pipe_parallel_world_size() - 1
-        )
+        is_last_stage = mpu.get_pipe_parallel_rank() == mpu.get_pipe_parallel_world_size() - 1
         pipe_load = is_first_stage or is_last_stage
     else:
         pipe_load = True
@@ -486,9 +537,7 @@ def build_datasets_from_global_config(global_config):
     if mpu.get_model_parallel_rank() == 0 and pipe_load:
         # Number of train/valid/test samples.
         train_iters = global_config.train_iters
-        eval_iters = (
-            train_iters // global_config.eval_interval + 1
-        ) * global_config.eval_iters
+        eval_iters = (train_iters // global_config.eval_interval + 1) * global_config.eval_iters
         test_iters = global_config.eval_iters
         train_val_test_num_samples = [
             train_iters * global_config.train_batch_size,
@@ -533,9 +582,7 @@ def build_datasets_from_global_config(global_config):
                 )
 
                 # builds weights according to alpha + the number of docs
-                fn = partial(
-                    weights_by_num_docs, alpha=global_config.weighted_sampler_alpha
-                )
+                fn = partial(weights_by_num_docs, alpha=global_config.weighted_sampler_alpha)
                 train_weights, valid_weights, test_weights = (
                     fn(train_num_docs),
                     fn(valid_num_docs),
@@ -544,15 +591,11 @@ def build_datasets_from_global_config(global_config):
                 (
                     train_weights,
                     train_num_samples,
-                ) = get_normalized_weights_and_num_samples(
-                    train_weights, train_val_test_num_samples[0]
-                )
+                ) = get_normalized_weights_and_num_samples(train_weights, train_val_test_num_samples[0])
                 (
                     valid_weights,
                     valid_num_samples,
-                ) = get_normalized_weights_and_num_samples(
-                    valid_weights, train_val_test_num_samples[1]
-                )
+                ) = get_normalized_weights_and_num_samples(valid_weights, train_val_test_num_samples[1])
                 test_weights, test_num_samples = get_normalized_weights_and_num_samples(
                     test_weights, train_val_test_num_samples[2]
                 )
@@ -586,6 +629,7 @@ def build_datasets_from_global_config(global_config):
                 seq_length=global_config.seq_length,
                 seed=global_config.seed,
                 skip_warmup=(not global_config.mmap_warmup),
+                enforce_sample_length=global_config.enforce_sample_length,
             )
         return train_ds, valid_ds, test_ds
 

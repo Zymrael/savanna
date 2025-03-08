@@ -18,7 +18,7 @@ import os
 from abc import ABC, abstractmethod
 from multiprocessing import cpu_count
 import glob
-import json 
+import json
 import jsonlines
 
 """
@@ -131,18 +131,14 @@ class DataDownloader(ABC):
             try:
                 os_cmd = f"wget {url} -O {os.path.join(self.base_dir, self.name, os.path.basename(url))}"
                 if os.system(os_cmd) != 0:
-                    raise Exception(
-                        f"Cannot download file at URL {url}: server may be down"
-                    )
+                    raise Exception(f"Cannot download file at URL {url}: server may be down")
             except Exception as e:
                 raise Exception(f"Download error: {e}")
 
     def tokenize(self):
         """tokenizes dataset"""
         parent_folder = os.path.join(self.base_dir, self.name)
-        jsonl_filepath = ",".join(
-            [os.path.join(parent_folder, os.path.basename(url)) for url in self.urls]
-        )
+        jsonl_filepath = ",".join([os.path.join(parent_folder, os.path.basename(url)) for url in self.urls])
 
         cmd = f"python tools/preprocess_data.py \
             --input {jsonl_filepath} \
@@ -168,8 +164,6 @@ class DataDownloader(ABC):
         else:
             if not self.exists():
                 self.download()
-        if self.format == "json":
-            self.convert_to_jsonl()
         self.tokenize()
 
 
@@ -186,9 +180,7 @@ class PileSubset(DataDownloader):
 
 class Pile(DataDownloader):
     name = "pile"
-    urls = [
-        f"https://the-eye.eu/public/AI/pile/train/{i:02}.jsonl.zst" for i in range(30)
-    ]
+    urls = [f"https://the-eye.eu/public/AI/pile/train/{i:02}.jsonl.zst" for i in range(30)]
 
     def exists(self):
         """Checks if the dataset is present"""
@@ -238,9 +230,7 @@ class EuroParl(DataDownloader):
 
 class FreeLaw(DataDownloader):
     name = "freelaw"
-    urls = [
-        "https://the-eye.eu/public/AI/pile_preliminary_components/FreeLaw_Opinions.jsonl.zst"
-    ]
+    urls = ["https://the-eye.eu/public/AI/pile_preliminary_components/FreeLaw_Opinions.jsonl.zst"]
 
 
 class NiH(DataDownloader):
@@ -252,9 +242,7 @@ class NiH(DataDownloader):
 
 class PubMed(DataDownloader):
     name = "pubmed"
-    urls = [
-        "https://the-eye.eu/public/AI/pile_preliminary_components/PMC_extracts.tar.gz"
-    ]
+    urls = ["https://the-eye.eu/public/AI/pile_preliminary_components/PMC_extracts.tar.gz"]
 
 
 class Books1(DataDownloader):
@@ -275,38 +263,29 @@ class HackerNews(DataDownloader):
 
 class OpenWebText2(DataDownloader):
     name = "openwebtext2"
-    urls = [
-        "https://the-eye.eu/public/AI/pile_preliminary_components/openwebtext2.jsonl.zst.tar"
-    ]
+    urls = ["https://the-eye.eu/public/AI/pile_preliminary_components/openwebtext2.jsonl.zst.tar"]
     num_docs = 17103000
 
 
 class StackExchange(DataDownloader):
     name = "stackexchange"
-    urls = [
-        "https://the-eye.eu/public/AI/pile_preliminary_components/stackexchange_dataset.tar"
-    ]
+    urls = ["https://the-eye.eu/public/AI/pile_preliminary_components/stackexchange_dataset.tar"]
 
 
 class UbuntuIRC(DataDownloader):
     name = "ubuntu_irc"
-    urls = [
-        "https://the-eye.eu/public/AI/pile_preliminary_components/ubuntu_irc_until_2020_9_1.jsonl.zst"
-    ]
+    urls = ["https://the-eye.eu/public/AI/pile_preliminary_components/ubuntu_irc_until_2020_9_1.jsonl.zst"]
 
 
 class YoutubeSubtitles(DataDownloader):
     name = "youtube_subtitles"
-    urls = [
-        "https://the-eye.eu/public/AI/pile_preliminary_components/yt_subs.jsonl.zst"
-    ]
+    urls = ["https://the-eye.eu/public/AI/pile_preliminary_components/yt_subs.jsonl.zst"]
 
 
 class C4(DataDownloader):
     name = "c4"
     urls = [
-        f"https://the-eye.eu/eleuther_staging/c4/en/c4-train.{i:05}-of-01024.json.gz"
-        for i in range(1024)
+        f"https://the-eye.eu/eleuther_staging/c4/en/c4-train.{i:05}-of-01024.json.gz" for i in range(1024)
     ]
 
 
@@ -332,9 +311,7 @@ class Libgen(DataDownloader):
 
     def tokenize(self):
         parent_folder = os.path.join(self.base_dir, self.name)
-        jsonl_filepath = ",".join(
-            [os.path.join(parent_folder, os.path.basename(url)) for url in self.urls]
-        )
+        jsonl_filepath = ",".join([os.path.join(parent_folder, os.path.basename(url)) for url in self.urls])
 
         cmd = f"python tools/preprocess_data.py \
             --input {jsonl_filepath} \
@@ -362,8 +339,6 @@ class MMLU_CoT(DataDownloader):
         fname_no_ext = fname[: -len(".json")]
         with jsonlines.open(fname + ".jsonl", "w") as writer:
             writer.write_all(data)
-
-
 
 
 def maybe_download_gpt2_tokenizer_data(tokenizer_type, data_dir):

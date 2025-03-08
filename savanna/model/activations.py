@@ -1,5 +1,7 @@
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
+from savanna.utils import ALLOC_DEVICE
 
 torch._C._jit_set_profiling_mode(False)
 torch._C._jit_set_profiling_executor(False)
@@ -7,8 +9,20 @@ torch._C._jit_override_can_fuse_on_cpu(True)
 torch._C._jit_override_can_fuse_on_gpu(True)
 
 
-def get_activation(global_config):
+class Sin(nn.Module):
+    def __init__(self, dim, w=10, train_freq=True):
+        super().__init__()
+        self.freq = nn.Parameter(w * torch.ones(1, dim, device=ALLOC_DEVICE)) if train_freq else w * torch.ones(1, dim, device=ALLOC_DEVICE)
+
+    def forward(self, x):
+        return torch.sin(self.freq * x)
+
+
+def get_activation(global_config, act_str=None):
     """retrieves the activation function specified in global_config"""
+    if act_str is not None:
+        global_config.activation = act_str
+
     if global_config.activation == "geglu":
         activation_func = GEGLU(global_config=global_config)
     elif global_config.activation == "gelu":
@@ -30,12 +44,12 @@ def get_activation(global_config):
         activation_func = mish
     elif global_config.activation == "silu":
         activation_func = F.silu
+    elif global_config.activation == "sin":
+        activation_func = Sin(global_config.hidden_size)
     elif global_config.activation == "identity":
         activation_func = lambda x: x
     else:
-        raise ValueError(
-            f"Activation function {global_config.activation} not recognized"
-        )
+        raise ValueError(f"Activation function {global_config.activation} not recognized")
     return activation_func
 
 
@@ -62,9 +76,7 @@ def bias_gelu_back(g, bias, y):
     x = bias + y
     tanh_out = torch.tanh(0.79788456 * x * (1 + 0.044715 * x * x))
     # sqrt(2/pi) * 3 * 0.044715 -> 0.1070322243
-    ff = 0.5 * x * (
-        (1 - tanh_out * tanh_out) * (0.79788456 + 0.1070322243 * x * x)
-    ) + 0.5 * (1 + tanh_out)
+    ff = 0.5 * x * ((1 - tanh_out * tanh_out) * (0.79788456 + 0.1070322243 * x * x)) + 0.5 * (1 + tanh_out)
     return ff * g
 
 
@@ -88,14 +100,7 @@ bias_gelu_impl = GeLUFunction.apply
 # This is actually Python equivalent of torch.nn.functional.gelu(), also with type hints for ONNX exporter
 @torch.jit.script
 def erf_gelu(x):
-    return (
-        x
-        * 0.5
-        * (
-            torch.erf(x / 1.41421).to(dtype=x.dtype)
-            + torch.ones_like(x).to(dtype=x.dtype)
-        )
-    )
+    return x * 0.5 * (torch.erf(x / 1.41421).to(dtype=x.dtype) + torch.ones_like(x).to(dtype=x.dtype))
 
 
 @torch.jit.script

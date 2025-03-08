@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import torch
+import savanna.lazy_imports
 
 
 def print_rank_0(*message):
@@ -24,4 +25,4 @@ def print_rank_0(*message):
 
 
 from .initialize import initialize_megatron
-from .neox_arguments import GlobalConfig
+from .arguments import GlobalConfig

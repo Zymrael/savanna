@@ -1,0 +1,116 @@
+
+{
+   "pipe-parallel-size": 1,
+   "model-parallel-size": 1,
+
+   ############### model settings
+   "num-layers": 28,
+   "hidden-size": 2048,
+   "operator-config": [[["hyena"], 28]],
+   "short-conv-L": 3,
+   "prenorm": true,
+   "postnorm": false,
+ 
+   "hyena_filter_fast_decay": 0.9,
+   "hyena_filter_slow_decay": 1.5,
+   "hyena_filter_w": 1, 
+   "hyena_filter_order": 1536,
+   "use_fast_heads": false,
+   "use_slow_heads": true,
+   "use-hyena-filter": true,
+   "use_fast_heads": false,
+   "seq-length": 8192,  
+   "norm": "rmsnorm",
+   "rms_norm_epsilon": 1.0e-6,
+   "output_layer_parallelism": "column",
+   "identity_mlp": false,
+  #  "no_weight_tying": true,
+  #  "gpt_j_residual": true,
+  "pos_emb": None,
+  "num_heads": 512, # hidden-size / num_heads unique filters
+  "num_attention_heads": 512, # nb: this is only used for mpu with vanilla Hyena, no heads to split
+  "mlp_type": "regular",
+  #"activation": "softsign",
+
+   ############## misc optims
+   "scaled-upper-triang-masked-softmax-fusion": true,
+   "bias-gelu-fusion": true,
+
+   ############### init
+   "init_method": "small_init",
+   "output_layer_init_method": "wang_init",
+
+   ############## optimizer
+   "optimizer": {
+     "type": "Adam",
+     "params": {
+       "lr": 0.0002,
+       "betas": [0.9, 0.95],
+       "eps": 1.0e-8,
+     }
+   },
+   "min_lr": 0.00006,
+
+   ############### sys optims
+   "zero_optimization": {
+    "stage": 0,
+    "allgather_partitions": True,
+    "allgather_bucket_size": 500000000,
+    "overlap_comm": True,
+    "reduce_scatter": True,
+    "reduce_bucket_size": 500000000,
+    "contiguous_gradients": True,
+    "cpu_offload": false
+  },
+
+   ################# batch sizes
+   "train_micro_batch_size_per_gpu": 4,
+   "gradient_accumulation_steps": 1,
+   "data-impl": "mmap",
+   "num_workers": 1,
+
+   ################# act checkpointing
+   "checkpoint-activations": true,
+   "checkpoint-num-layers": 1,
+   "partition-activations": true,
+   "synchronize-each-layer": true,
+
+   ################# regularization
+   "gradient_clipping": 1.0,
+   "weight-decay": 0.1,
+   "hidden-dropout": 0.0,
+   "attention-dropout": 0.0,
+
+   ################ precision
+   "precision": "bfloat16",
+   "bf16": {
+   "enabled": true
+    },
+   
+   ################# training
+   "train-iters": 143000,
+   "lr-decay-iters": 143000,
+   "distributed-backend": "nccl",
+   "lr-decay-style": "cosine",
+   "warmup": 0.01,
+   "checkpoint-factor": 1000,
+   "eval-interval": 3000,
+   "eval-iters": 10,
+
+   ################ logging
+   "log-interval": 10,
+   "steps_per_print": 10,
+   "keep-last-n-checkpoints": 4,
+   "save": "1.5b_hyena_4heads",
+   "wall_clock_breakdown": True,
+   "save": "/var/cr06_data/mpoli/checkpoints/1.5b_hyena_4heads_standard_mlp",
+   "load": "/var/cr06_data/mpoli/checkpoints/1.5b_hyena_4heads_standard_mlp",
+  "iteration": 1000,
+  ################# networking
+  "hostfile": "./hostfile",
+  "launcher": "pdsh"
+}
+
+
+
+

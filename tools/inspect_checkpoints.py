@@ -64,10 +64,7 @@ def pretty_print(contents: dict):
                 line += f"{COLORS.CYAN}shape={list(v.shape)}{COLORS.END}"
                 line += ", "
                 line += f"{COLORS.CYAN}dtype={v.dtype}{COLORS.END}"
-            line += (
-                ", "
-                + f"{COLORS.CYAN}size={sizeof_fmt(v.nelement() * v.element_size())}{COLORS.END}"
-            )
+            line += ", " + f"{COLORS.CYAN}size={sizeof_fmt(v.nelement() * v.element_size())}{COLORS.END}"
         print(line)
 
 
@@ -80,9 +77,7 @@ def common_entries(*dcts):
 
 def pretty_print_double(contents1: dict, contents2: dict, args):
     """Prints a nice summary of the top-level contents in a checkpoint dictionary."""
-    col_size = max(
-        max(len(str(k)) for k in contents1), max(len(str(k)) for k in contents2)
-    )
+    col_size = max(max(len(str(k)) for k in contents1), max(len(str(k)) for k in contents2))
     common_keys = list(contents1.keys() & contents2.keys())
     uncommon_keys_1 = [i for i in contents2.keys() if i not in common_keys]
     uncommon_keys_2 = [i for i in contents1.keys() if i not in common_keys]
@@ -230,9 +225,7 @@ def get_shared_fnames(files_1, files_2):
     names_2 = [Path(i).name for i in files_2]
     names_2_parent = Path(files_2[0]).parent
     shared_names = list(set.intersection(*map(set, [names_1, names_2])))
-    return [names_1_parent / i for i in shared_names], [
-        names_2_parent / i for i in shared_names
-    ]
+    return [names_1_parent / i for i in shared_names], [names_2_parent / i for i in shared_names]
 
 
 def get_selection(filename, args):
@@ -263,9 +256,7 @@ def compare(args: Namespace):
         selection_2 = get_selection(file2, args)
         diffs_found = pretty_print_double(selection_1, selection_2, args)
         if args.diff and diffs_found:
-            print(
-                f"{COLORS.RED}THE ABOVE DIFFS WERE FOUND IN {file1.name} & {file2.name} ^{COLORS.END}\n"
-            )
+            print(f"{COLORS.RED}THE ABOVE DIFFS WERE FOUND IN {file1.name} & {file2.name} ^{COLORS.END}\n")
 
         if args.interactive:
             code.interact(
@@ -306,9 +297,7 @@ def main():
         action="store_true",
         help="If true, script will compare two directories separated by commas",
     )
-    parser.add_argument(
-        "--diff", "-d", action="store_true", help="In compare mode, only print diffs"
-    )
+    parser.add_argument("--diff", "-d", action="store_true", help="In compare mode, only print diffs")
 
     args = parser.parse_args()
     if args.compare:

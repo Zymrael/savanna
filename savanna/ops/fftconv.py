@@ -1,5 +1,6 @@
 import torch
 import torch.nn.functional as F
+from einops import rearrange, repeat
 
 
 @torch.jit.script
@@ -7,18 +8,48 @@ def _mul_sum(y, q):
     return (y * q).sum(dim=1)
 
 
-def fftconv_func(u, k, D, dropout_mask, gelu=True, k_rev=None):
+def fftconv_func(u, k, D, dropout_mask, gelu=True, k_rev=None, bidirectional=False):
     seqlen = u.shape[-1]
     fft_size = 2 * seqlen
-    k_f = torch.fft.rfft(k, n=fft_size) / fft_size
-    if k_rev is not None:
-        k_rev_f = torch.fft.rfft(k_rev, n=fft_size) / fft_size
-        k_f = k_f + k_rev_f.conj()
-    u_f = torch.fft.rfft(u.to(dtype=k.dtype), n=fft_size)
 
-    if len(u.shape) > 3:
-        k_f = k_f.unsqueeze(1)
-    y = torch.fft.irfft(u_f * k_f, n=fft_size, norm="forward")[..., :seqlen]
+    # check if k is less than seqlen
+    if k.shape[-1] < seqlen:
+        # Pad the filter k to the length of the input sequence u
+        k_padded = torch.nn.functional.pad(k, (0, seqlen - k.shape[-1]))
+
+    # bidirectional
+    if bidirectional:
+        u_f = torch.fft.rfft(u.to(dtype=k.dtype), n=fft_size)
+
+        # split k along the channel dimension
+        k, k2 = k.split(k.shape[1] // 2, dim=1)
+
+        # get fft of both k's
+        k_f = torch.fft.rfft(k, n=fft_size) / fft_size
+        k2_f = torch.fft.rfft(k2, n=fft_size) / fft_size
+
+        if len(u.shape) > 3:
+            k_f = k_f.unsqueeze(1)
+            k2_f = k2_f.unsqueeze(1)
+
+        y1 = u_f * k_f
+        y2 = u_f.conj() * k2_f.conj()
+
+        y = torch.fft.irfft(y1 + y2, n=fft_size, norm="forward")[..., :seqlen]
+
+    # causal
+    else:
+        k_f = torch.fft.rfft(k, n=fft_size) / fft_size
+        if k_rev is not None:
+            k_rev_f = torch.fft.rfft(k_rev, n=fft_size) / fft_size
+            k_f = k_f + k_rev_f.conj()
+
+        u_f = torch.fft.rfft(u.to(dtype=k.dtype), n=fft_size)
+
+        if len(u.shape) > 3:
+            k_f = k_f.unsqueeze(1)
+
+        y = torch.fft.irfft(u_f * k_f, n=fft_size, norm="forward")[..., :seqlen]
 
     out = y + u * D.unsqueeze(-1)
     if gelu:
@@ -27,3 +58,27 @@ def fftconv_func(u, k, D, dropout_mask, gelu=True, k_rev=None):
         return (out * rearrange(dropout_mask, "b H -> b H 1")).to(dtype=u.dtype)
     else:
         return out.to(dtype=u.dtype)
+
+
+def fftconv_heads_ref(k, ssm_kernel, D, q, v, head_dim=1, ssm_kernel_rev=None):
+    seqlen = k.shape[-1]
+    fft_size = 2 * seqlen
+    kv = rearrange(k, "b (h d1) l -> b d1 1 h l", d1=head_dim) * rearrange(
+        v, "b (h d2) l -> b 1 d2 h l", d2=head_dim
+    )  # b d1 d2 h l
+    kv_f = torch.fft.rfft(kv.to(dtype=ssm_kernel.dtype), n=fft_size) / fft_size
+    ssm_kernel_f = torch.fft.rfft(ssm_kernel, n=fft_size)  # h L+1
+    if ssm_kernel_rev is not None:
+        ssm_kernel_rev_f = torch.fft.rfft(ssm_kernel_rev, n=fft_size)  # h L+1
+        ssm_kernel_f = ssm_kernel_f + ssm_kernel_rev_f.conj()
+
+    y = torch.fft.irfft(kv_f * ssm_kernel_f, n=fft_size, norm="forward")[..., :seqlen]  # b d1 d2 h l
+    out = y + kv * D.unsqueeze(-1)  # b d1 d2 h l
+    q = rearrange(q, "b (h d1) l -> b d1 1 h l", d1=head_dim) / math.sqrt(
+        head_dim
+    )  # <- this is not in hyenav0.2
+    if head_dim > 1:
+        out = _mul_sum(out, q)
+        return rearrange(out, "b d2 h l -> b (h d2) l").to(dtype=k.dtype)
+    else:
+        return rearrange(out * q, "b 1 1 h l -> b h l").to(dtype=k.dtype)

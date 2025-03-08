@@ -1,0 +1,11 @@
+*__pycache__*
+configs/evo2
+configs/eric
+configs/model/evo2
+log
+logs
+configs/evo1/
+.ipynb_checkpoints/
+hostfile
+.vscode/
+wandb/

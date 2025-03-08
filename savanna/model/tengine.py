@@ -1,12 +1,25 @@
 from savanna.mpu import get_model_parallel_group, get_cuda_rng_tracker
-
+from savanna.mpu.layers import RowParallelLinear, ColumnParallelLinear
+from savanna.utils import get_dtype_from_string
 
 from importlib.metadata import version
 from typing import Callable
 
 import torch
-import transformer_engine.pytorch as te
+import torch.nn as nn
 from pkg_resources import packaging
+
+try:
+    from transformer_engine.pytorch import LayerNormLinear, Linear, LayerNorm
+    from transformer_engine.common.recipe import Format, DelayedScaling
+except:
+    print("WARNING: transformer_engine not installed. Using default recipe.")
+
+
+def set_format_recipe(global_config):
+    fp8_format = Format.HYBRID  # E4M3 during forward pass, E5M2 during backward pass
+    fp8_recipe = DelayedScaling(fp8_format=fp8_format, amax_history_len=16, amax_compute_algo="max")
+    return fp8_format, fp8_recipe
 
 
 def _get_extra_te_kwargs(config):
@@ -40,17 +53,15 @@ class TENorm:
         **kwargs
     ):
         if normalization == "LayerNorm":
-            instance = te.pytorch.LayerNorm(
+            instance = LayerNorm(
                 hidden_size=hidden_size,
                 eps=eps,
                 sequence_parallel=sequence_parallel,
                 **_get_extra_te_kwargs(config),
             )
         elif normalization == "RMSNorm":
-            assert hasattr(
-                te.pytorch, "RMSNorm"
-            ), "Transformer-Engine >= v0.11 required to use this feature"
-            instance = te.pytorch.RMSNorm(
+            assert hasattr(te, "RMSNorm"), "Transformer-Engine >= v0.11 required to use this feature"
+            instance = RMSNorm(
                 hidden_size=hidden_size,
                 eps=eps,
                 sequence_parallel=sequence_parallel,
@@ -62,7 +73,7 @@ class TENorm:
         return instance
 
 
-class TELinear(te.pytorch.Linear):
+class TELinear(Linear):
     """
     Wrapper for the Transformer-Engine's `Linear` layer.
 
@@ -84,6 +95,9 @@ class TELinear(te.pytorch.Linear):
         **kwargs
     ):
         self.config = config
+        # Parameters are initialized at higher precision even if fp8
+        # is used
+        params_dtype = get_dtype_from_string(config.params_dtype)
 
         # TE returns a zero length Tensor when bias=False and
         # return_bias=True, but we prefer None.  So in that case we
@@ -98,10 +112,10 @@ class TELinear(te.pytorch.Linear):
             sequence_parallel=self.config.sequence_parallel,
             fuse_wgrad_accumulation=self.config.gradient_accumulation_fusion,
             tp_group=get_model_parallel_group(check_initialized=False),
-            tp_size=self.config.tensor_model_parallel_size,
+            tp_size=self.config.model_parallel_size,
             get_rng_state_tracker=get_cuda_rng_tracker,
             init_method=init_method,
-            params_dtype=self.config.params_dtype,
+            params_dtype=params_dtype,
             parallel_mode=parallel_mode,
             bias=bias,
             return_bias=self.te_return_bias,
@@ -120,7 +134,7 @@ class TELinear(te.pytorch.Linear):
         return out, None
 
 
-class TELayerNormColumnParallelLinear(te.pytorch.LayerNormLinear):
+class TELayerNormColumnParallelLinear(LayerNormLinear):
     """
     Wrapper for the Transformer-Engine's `LayerNormLinear` layer that combines
     layernorm and linear layers
@@ -211,7 +225,7 @@ class TERowParallelLinear(TELinear):
         )
 
 
-# class TEDotProductAttention(te.pytorch.DotProductAttention):
+# class TEDotProductAttention(DotProductAttention):
 #     """
 #     Wrapper for the Transformer-Engine's `DotProductAttention` layer that also
 #     has "flash attention" enabled.

@@ -1,69 +1,24 @@
 import torch
 import torch.nn as nn
 from savanna.model.activations import get_activation
-from savanna.model.word_embeddings import EmbeddingPipe, SoftEmbedding
-from savanna.model.tengine import TENorm, TEColumnParallelLinear
-from savanna.model.hyena import ParallelHyenaConv
+from savanna.model.operators.word_embeddings import EmbeddingPipe, SoftEmbedding
+from savanna.model.operators.hyena.hyena import ParallelHyenaOperator
+from savanna.mpu.initialize import get_fp8_sync_group
+from savanna.linear import FlexLinear
 
-
-# Gated MLP
-class GatedMLP(nn.Module):
-    def __init__(
-        self,
-        global_config,
-        init_method,
-        output_layer_init_method,
-        parallel_output=False,
-        multiple_of=256,
-    ):
-        super().__init__()
-
-        self.activation_func = get_activation(global_config)
-        self.activation_type = global_config.activation
-
-        self.multiple_of = multiple_of
-
-        ff_dim = int(2 * global_config.hidden_size * 4 / 3)
-        ff_dim = self.multiple_of * ((ff_dim + multiple_of - 1) // multiple_of)
-
-        self.w1 = TEColumnParallelLinear(
-            input_size=global_config.hidden_size,
-            output_size=ff_dim,
-            gather_output=False,
-            init_method=init_method,
-            skip_bias_add=True,
-            bias=False,
-        )
-        self.w3 = TEColumnParallelLinear(
-            input_size=global_config.hidden_size,
-            output_size=ff_dim,
-            gather_output=False,
-            init_method=init_method,
-            skip_bias_add=True,
-            bias=False,
-        )
-        self.w2 = TEColumnParallelLinear(
-            global_config=global_config,
-            input_size=ff_dim,
-            output_size=global_config.hidden_size,
-            input_is_parallel=True,
-            init_method=output_layer_init_method,
-            skip_bias_add=True,
-            parallel_output=parallel_output,
-            bias=False,
-        )
-
-    def forward(self, hidden_states):
-        w1_out, _ = self.w1(hidden_states)
-        w3_out, _ = self.w3(hidden_states)
-        return self.w2(self.activation_func(w1_out) * w3_out)
-
-
-# MHA
-
-# Hyena
-
-# Norm
+try:
+    import transformer_engine.pytorch as te
+    from transformer_engine.common.recipe import Format, DelayedScaling
+    from savanna.model.tengine import (
+        TENorm,
+        TELayerNormColumnParallelLinear,
+        TEColumnParallelLinear,
+        TERowParallelLinear,
+        set_format_recipe,
+    )
+except:
+    te = None
+    print("WARNING: transformer_engine not installed. Using default recipe.")
 
 
 # block performs the following operations:
@@ -83,9 +38,7 @@ def get_block(global_config):
 
 
 class Block(nn.Module):
-    def __init__(
-        self, d_model: int, d_mlp: int, mixer_cls: str, mlp_cls: str, init_method
-    ):
+    def __init__(self, d_model: int, d_mlp: int, mixer_cls: str, mlp_cls: str, init_method):
         super().__init__()
 
         block_number = self.global_config.layer_number  # TODO: standardize this
@@ -93,7 +46,7 @@ class Block(nn.Module):
 
         self.pre_norm_mixer = TENorm()
         self.pre_norm_mlp = TENorm()
-        self.mixer = ParallelHyenaConv(init_method, block_number)
+        self.mixer = ParallelHyenaOperator(init_method, block_number)
         self.mlp = GatedMLP()
 
     def forward(self, x):
@@ -129,24 +82,107 @@ if __name__ == "__main__":
     import torch
     import transformer_engine.pytorch as te
     from transformer_engine.common import recipe
+    from savanna.model.block import ParallelGLU
+    from savanna.initialize import initialize_megatron
+    from savanna.model.init_functions import xavier_normal_init_method
+    from copy import deepcopy
 
     # Set dimensions.
     in_features = 768
     out_features = 3072
     hidden_size = 2048
 
-    # Initialize model and inputs.
-    model = te.Linear(in_features, out_features, bias=True)
-    inp = torch.randn(hidden_size, in_features, device="cuda")
+    class dotdict(dict):
+        """dot.notation access to dictionary attributes"""
 
-    # Create an FP8 recipe. Note: All input args are optional.
-    fp8_recipe = recipe.DelayedScaling(
-        margin=0, interval=1, fp8_format=recipe.Format.E4M3
+        __getattr__ = dict.get
+        __setattr__ = dict.__setitem__
+        __delattr__ = dict.__delitem__
+
+    config = {
+        "precision": "fp8",
+        "activation": "gelu",
+        "hidden_size": hidden_size,
+        "lazy_mpu_init": False,
+        "local_rank": 0,
+        "rank": 0,
+        "world_size": 8,
+        "pipe_parallel_size": 1,
+        "model_parallel_size": 1,
+        "seed": 1234,
+        "num_layers": 12,
+        "checkpoint_num_layers": 1,
+        "partition_activations": False,
+        "contiguous_checkpointing": False,
+        "checkpoint_in_cpu": False,
+        "synchronize_each_layer": False,
+        "profile_backward": False,
+        "params_dtype": "bf16",
+    }
+    # turn dictionary into something that can be called with dot notation
+    config = dotdict(config)
+
+    # initialize model parallel group
+    initialize_megatron(config)
+
+    init_method = xavier_normal_init_method(False, 1.0)
+    output_layer_init_method = xavier_normal_init_method(False, 1.0)
+    l = ParallelGLU(config, init_method, output_layer_init_method)
+
+    x = torch.randn(8, hidden_size, device="cuda")
+    x = x.to(torch.bfloat16)
+    l = l.cuda()
+    y, _ = l(x)
+    print(y.shape)
+
+    fp8_format, fp8_recipe = set_format_recipe(config)
+    config.use_fp8_linears = True
+    l_flex = FlexLinear(
+        input_size=hidden_size,
+        output_size=hidden_size,
+        config=config,
+        init_method=init_method,
+        parallel_mode="column",
     )
+    weight = l_flex.weight
+    l_flex = l_flex.cuda()
 
-    # Enable autocasting for the forward pass
-    with te.fp8_autocast(enabled=True, fp8_recipe=fp8_recipe):
-        out = model(inp)
+    with te.fp8_autocast(enabled=True, fp8_recipe=fp8_recipe, fp8_group=get_fp8_sync_group()):
+        y_flex, _ = l_flex(x)
 
-    loss = out.sum()
-    loss.backward()
+    # MP: not copying the input triggers same error as two passes through the model
+    # with FP8 enabled?
+    x = deepcopy(x)
+
+    config.use_fp8_linears = False
+    l_flex_no_fp8 = FlexLinear(
+        input_size=hidden_size,
+        output_size=hidden_size,
+        config=config,
+        init_method=init_method,
+        parallel_mode="column",
+    )
+    l_flex_no_fp8.weight = weight
+    y_flex_no_fp8, _ = l_flex_no_fp8(x)
+
+    import pdb
+
+    pdb.set_trace()
+    assert torch.allclose(y_flex, y_flex_no_fp8)
+
+    # # Initialize model and inputs.
+    # model = te.Linear(in_features, out_features, bias=True)
+    # inp = torch.randn(hidden_size, in_features, device="cuda")
+
+    # # Create an FP8 recipe. Note: All input args are optional.
+    # fp8_recipe = recipe.DelayedScaling(
+    #     margin=0, interval=1, fp8_format=recipe.Format.E4M3
+    # )
+
+    # # Enable autocasting for the forward pass
+    # with te.fp8_autocast(enabled=True, fp8_recipe=fp8_recipe):
+    #     out = model(inp)
+
+    # loss = out.sum()
+    # loss.backward()
+    # print("Done")

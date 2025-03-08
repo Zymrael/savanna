@@ -15,7 +15,7 @@ PARAMS_TO_TEST = {
         [0, 2, 2],
     ],
     "no_weight_tying": binary,
-    "attention_config": [
+    "operator_config": [
         [[["global"], "all"]],
         [[["local"], "all"]],
         [[["sparse_variable"], "all"]],

@@ -1,5 +1,4 @@
 """Blendable dataset."""
-
 import time
 
 import numpy as np
@@ -44,9 +43,7 @@ class BlendableDataset(torch.utils.data.Dataset):
 
         print(
             "> RANK {} elapsed time for building blendable dataset indices: "
-            "{:.2f} (sec)".format(
-                torch.distributed.get_rank(), time.time() - start_time
-            )
+            "{:.2f} (sec)".format(torch.distributed.get_rank(), time.time() - start_time)
         )
 
     def __len__(self):

@@ -1,5 +1,4 @@
 """Utilities for generating text."""
-
 import copy
 import json
 import os
@@ -30,7 +29,9 @@ def get_batch(global_config, tokenizer, context_tokens: torch.Tensor):
     attention_mask, _, position_ids = get_ltor_masks_and_position_ids(
         data=tokens,
         eod_token=tokenizer.eod,
+        pad_token=tokenizer.pad,
         eod_mask_loss=global_config.eod_mask_loss,
+        pad_mask_loss=global_config.pad_mask_loss,
     )
     return tokens, attention_mask, position_ids
 
@@ -243,9 +244,7 @@ def stream_tokens(
     )
 
     # get attention mask / position ids
-    context_tokens, attention_mask, position_ids = get_batch(
-        global_config, tokenizer, context_tokens
-    )
+    context_tokens, attention_mask, position_ids = get_batch(global_config, tokenizer, context_tokens)
 
     # set variables
     eos_token_id = eos_token_id or tokenizer.eod
@@ -259,8 +258,7 @@ def stream_tokens(
     token_index_to_generate = token_generation_start_index.min().item()
     first_token_index_to_generate = token_index_to_generate
     last_token_index_to_generate = min(
-        global_config.seq_length
-        - 1,  # never generate more than the model's sequence length
+        global_config.seq_length - 1,  # never generate more than the model's sequence length
         token_index_to_generate + maximum_tokens - 1,
     )
 
@@ -268,9 +266,7 @@ def stream_tokens(
         # initialize generation variables
         state_is_done = torch.zeros([batch_size]).byte().cuda()
         token_generation_end_index = torch.ones([batch_size]).long().cuda() * (-1)
-        generation_logits = (
-            torch.empty(maximum_tokens, global_config.padded_vocab_size).float().cuda()
-        )
+        generation_logits = torch.empty(maximum_tokens, global_config.padded_vocab_size).float().cuda()
 
         while token_index_to_generate <= last_token_index_to_generate:
             if recompute:  # recompute all tokens
@@ -279,9 +275,7 @@ def stream_tokens(
                     position_ids,
                     attention_mask,
                 )
-                logits = forward_model(
-                    model, model_inputs, global_config.is_pipe_parallel
-                )
+                logits = forward_model(model, model_inputs, global_config.is_pipe_parallel)
                 if logits is not None:  # if pipe parallel, not all ranks return logits
                     generated_token_logits = logits[
                         :, token_index_to_generate - 1, :
@@ -291,12 +285,8 @@ def stream_tokens(
                     tokens_to_use = context_tokens[:, :token_index_to_generate]
                     positions_to_use = position_ids[:, :token_index_to_generate]
                 else:
-                    tokens_to_use = context_tokens[:, token_index_to_generate - 1].view(
-                        batch_size, -1
-                    )
-                    positions_to_use = position_ids[
-                        :, token_index_to_generate - 1
-                    ].view(batch_size, -1)
+                    tokens_to_use = context_tokens[:, token_index_to_generate - 1].view(batch_size, -1)
+                    positions_to_use = position_ids[:, token_index_to_generate - 1].view(batch_size, -1)
 
                 model_inputs = (
                     tokens_to_use,  # input_ids
@@ -304,9 +294,7 @@ def stream_tokens(
                     attention_mask,  # attention_mask
                 )
 
-                logits = forward_model(
-                    model, model_inputs, global_config.is_pipe_parallel
-                )
+                logits = forward_model(model, model_inputs, global_config.is_pipe_parallel)
                 if logits is not None:  # if pipe parallel, not all ranks return logits
                     generated_token_logits = (
                         logits[:, -1].view(batch_size, -1).contiguous()
@@ -315,25 +303,17 @@ def stream_tokens(
             if logits is not None:
                 # sample token id of the to be generated token
                 if temperature == 0.0 and top_k == 0 and top_p == 0.0:
-                    generated_tokens = torch.argmax(
-                        generated_token_logits, dim=-1
-                    ).view(-1)
+                    generated_tokens = torch.argmax(generated_token_logits, dim=-1).view(-1)
                 else:
                     generated_token_logits = generated_token_logits.float()
                     if temperature > 0.0:
                         generated_token_logits /= temperature
-                    generated_token_logits = filter_logits(
-                        generated_token_logits, top_k=top_k, top_p=top_p
-                    )
+                    generated_token_logits = filter_logits(generated_token_logits, top_k=top_k, top_p=top_p)
                     next_token_log_probs = F.softmax(generated_token_logits, dim=-1)
-                    generated_tokens = torch.multinomial(
-                        next_token_log_probs, num_samples=1
-                    ).view(-1)
+                    generated_tokens = torch.multinomial(next_token_log_probs, num_samples=1).view(-1)
 
                 if global_config.return_logits:
-                    generation_logits[
-                        token_index_to_generate - 1
-                    ] = generated_token_logits[0]
+                    generation_logits[token_index_to_generate - 1] = generated_token_logits[0]
 
             if global_config.is_pipe_parallel:
                 # broadcast generated tokens to pipe parallel group
@@ -374,9 +354,9 @@ def stream_tokens(
                 )
             state_is_done = state_is_done | stop_tokens_produced
 
-            token_generation_end_index[
-                (state_started.byte() & ~state_is_done).bool()
-            ] = token_index_to_generate
+            token_generation_end_index[(state_started.byte() & ~state_is_done).bool()] = (
+                token_index_to_generate
+            )
 
             token_index_to_generate += 1
 
@@ -427,9 +407,7 @@ def generate_samples_from_prompt(
     eos_token_id = eos_token_id or tokenizer.eod
 
     # type check
-    assert any(
-        [isinstance(text, str), isinstance(text, list)]
-    ), "Text should be in string or list form"
+    assert any([isinstance(text, str), isinstance(text, list)]), "Text should be in string or list form"
     if isinstance(text, str):
         text = [text]
 
@@ -461,8 +439,7 @@ def generate_samples_from_prompt(
                 print_rank_0(
                     "\nWarning! Context length",
                     context_length,
-                    "\nPlease give smaller context (e.g. half of the "
-                    "max sequence length)!",
+                    "\nPlease give smaller context (e.g. half of the " "max sequence length)!",
                 )
         if not is_mp_rank_0():
             context_tokens = tokenizer.tokenize("EMPTY TEXT")
@@ -495,12 +472,8 @@ def generate_samples_from_prompt(
             pass  # finish generation and use all results below
 
         batch_context_tokens = batch_context_tokens.cpu().numpy().tolist()
-        batch_token_generation_start_index = (
-            batch_token_generation_start_index.cpu().numpy().tolist()
-        )
-        batch_token_generation_end_index = (
-            batch_token_generation_end_index.cpu().numpy().tolist()
-        )
+        batch_token_generation_start_index = batch_token_generation_start_index.cpu().numpy().tolist()
+        batch_token_generation_end_index = batch_token_generation_end_index.cpu().numpy().tolist()
         batch_is_done = is_done.cpu().numpy().tolist()
 
         for tokens, start_index, end_index, is_done in zip(
@@ -521,7 +494,9 @@ def generate_samples_from_prompt(
                 generated_text = None
                 generated_tokens = []
                 # this will happen if the first generated token is a stop token or eos token
-                message = "WARNING: text generation did not start; try different batching or adjust parameters"
+                message = (
+                    "WARNING: text generation did not start; try different batching or adjust parameters"
+                )
             if is_mp_rank_0():
                 data = {
                     "context": raw_text,
@@ -586,9 +561,7 @@ def generate_samples_input_from_file(
         - 'duration_seconds': duration of the generation in seconds
     """
     # Read the sample file
-    print_rank_0(
-        "generate_samples_input_from_file() loading input from {}".format(input_file)
-    )
+    print_rank_0("generate_samples_input_from_file() loading input from {}".format(input_file))
     import pdb
 
     pdb.set_trace()
@@ -597,17 +570,13 @@ def generate_samples_input_from_file(
         prompts = prompts.split(prompt_end)
     prompts = [p.strip() for p in prompts]
     prompts = [p for p in prompts if len(p) > 0]
-    print_rank_0(
-        "generate_samples_input_from_file() prompts loaded: {}".format(len(prompts))
-    )
+    print_rank_0("generate_samples_input_from_file() prompts loaded: {}".format(len(prompts)))
 
     if is_mp_rank_0():
         if output_file is None:
             output_file = str(input_file) + ".output.jsonl"
             print_rank_0(
-                "generate_samples_input_from_file() setting default output file to {}".format(
-                    output_file
-                )
+                "generate_samples_input_from_file() setting default output file to {}".format(output_file)
             )
 
     print_rank_0("generate_samples_input_from_file() generating...")
@@ -755,19 +724,13 @@ def generate_samples_interactive(
                 if prompt_end in current_input:
                     raw_text += current_input.split(prompt_end)[0]
                     break
-                raw_text += (
-                    current_input + "\n"
-                )  # re-add newline since we stripped it on input
+                raw_text += current_input + "\n"  # re-add newline since we stripped it on input
             context_tokens = tokenizer.tokenize(raw_text)
             if len(context_tokens) == 0:
                 context_tokens = [tokenizer.eod]
             context_length = len(context_tokens)
             if context_length >= (global_config.seq_length - 1):
-                print_rank_0(
-                    "\nContext length"
-                    + str(context_length)
-                    + "\nReached max sequence length!"
-                )
+                print_rank_0("\nContext length" + str(context_length) + "\nReached max sequence length!")
                 terminate_runs = 1
         else:
             context_tokens = tokenizer.tokenize("EMPTY TEXT")

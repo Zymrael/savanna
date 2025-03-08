@@ -1,0 +1,18 @@
+{
+  "train-data-paths": [
+    "/datasets/evo2/gtdb_imgpr/pretraining_data_gtdb_imgpr/data_gtdb_imgpr_train_text_CharLevelTokenizer_document",
+    ],
+  "valid-data-paths": [
+    "/datasets/evo2/gtdb_imgpr/pretraining_data_gtdb_imgpr/data_gtdb_imgpr_valid_text_CharLevelTokenizer_document",
+    ],
+  "test-data-paths": [
+    "/datasets/evo2/gtdb_imgpr/pretraining_data_gtdb_imgpr/data_gtdb_imgpr_test_text_CharLevelTokenizer_document",
+    ],
+  "train-data-weights": [1.],
+  "test-data-weights": [1.],
+  "valid-data-weights": [1.],
+  "checkpoint_validation_with_forward_pass": False,
+  # "use_wandb": false,
+  "wandb_host": "https://api.wandb.ai",
+  "wandb_project": "evo2"
+}

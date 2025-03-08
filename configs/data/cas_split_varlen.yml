@@ -1,0 +1,24 @@
+{
+  "train-data-paths": [
+    "/large_experiments/brianhie/dna-gen/cas/finetuning_data_cas_split_varlen/data_cas9_train_text_CharLevelTokenizer_document",
+    "/large_experiments/brianhie/dna-gen/cas/finetuning_data_cas_split_varlen/data_cas12_train_text_CharLevelTokenizer_document",
+    "/large_experiments/brianhie/dna-gen/cas/finetuning_data_cas_split_varlen/data_cas13_train_text_CharLevelTokenizer_document",
+  ],
+  "test-data-paths": [
+    "/large_experiments/brianhie/dna-gen/cas/finetuning_data_cas_split_varlen/data_cas9_test_text_CharLevelTokenizer_document",
+    "/large_experiments/brianhie/dna-gen/cas/finetuning_data_cas_split_varlen/data_cas12_test_text_CharLevelTokenizer_document",
+    "/large_experiments/brianhie/dna-gen/cas/finetuning_data_cas_split_varlen/data_cas13_test_text_CharLevelTokenizer_document",
+  ],
+  "valid-data-paths": [
+    "/large_experiments/brianhie/dna-gen/cas/finetuning_data_cas_split_varlen/data_cas9_valid_text_CharLevelTokenizer_document",
+    "/large_experiments/brianhie/dna-gen/cas/finetuning_data_cas_split_varlen/data_cas12_valid_text_CharLevelTokenizer_document",
+    "/large_experiments/brianhie/dna-gen/cas/finetuning_data_cas_split_varlen/data_cas13_valid_text_CharLevelTokenizer_document",
+  ],
+  "train-data-weights": [0.34, 0.33, 0.33],
+  "test-data-weights": [0.34, 0.33, 0.33],
+  "valid-data-weights": [0.34, 0.33, 0.33],
+  "checkpoint_validation_with_forward_pass": False,
+  "use_wandb": True,
+  "wandb_host": "https://api.wandb.ai",
+  "wandb_project": "dna-gen"
+}

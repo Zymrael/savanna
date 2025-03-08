@@ -1,0 +1,31 @@
+# Minimal model config for MFU testing
+{
+  "train_micro_batch_size_per_gpu": 1,
+  "num_gpus": 1,
+  "checkpoint-activations": false,
+  "gradient_accumulation_steps": 1,
+  "num_layers": 4,
+  "hidden_size": 768,
+  "num_attention_heads": 12, 
+  "operator-config": [
+      [["flash_v2"], 4], 
+    ],
+  "seq_length": 8192,
+  "hyena_medium_conv_len": 128, 
+  "normalize_hyena_filters": false,
+  "short-conv-L": 3, 
+  # "hyena_filter_w": 14, 
+  # "hyena_filter_wd": 0.,
+  "use_fp8_linears": true,
+  "use_fp8_mlp_projections": True,
+  "use-hyena-filter": true,
+  "identity_mlp": false,
+  "mlp_type": "short_hyena",  
+   "precision": "bfloat16",
+   "bf16": {
+   "enabled": true
+    },
+  "make_gated_mlp_multiple_of": 64,  
+  "hyena_short_conv_len": 7,
+  "hyena_mlp_len": 7,
+}

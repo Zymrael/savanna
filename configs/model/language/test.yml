@@ -1,0 +1,76 @@
+{
+   "pipe-parallel-size": 1,
+   "model-parallel-size": 1,
+
+   "num-layers": 24,
+   "hidden-size": 896,
+   "operator-config": [[["hyena"], 24]],
+   "short-conv-L": 4,
+   "use-hyena-filter": true,
+   "seq-length": 2048,
+   "norm": "layernorm",
+   "output_layer_parallelism": "column",
+   "identity_mlp": true,
+   "pos_emb": None,
+   "num_heads": 8, 
+   "num_attention_heads": 8, 
+
+   "scaled-upper-triang-masked-softmax-fusion": false,
+   "bias-gelu-fusion": false,
+
+   "init_method": "small_init",
+   "output_layer_init_method": "wang_init",
+
+   "optimizer": {
+     "type": "Adam",
+     "params": {
+       "lr": 0.0006,
+       "betas": [0.9, 0.95],
+       "eps": 1.0e-8,
+     }
+   },
+   "min_lr": 0.00006,
+
+   "zero_optimization": {
+    "stage": 0,
+    "allgather_partitions": True,
+    "allgather_bucket_size": 500000000,
+    "overlap_comm": True,
+    "reduce_scatter": True,
+    "reduce_bucket_size": 500000000,
+    "contiguous_gradients": True,
+  },
+
+   "train_micro_batch_size_per_gpu": 64,
+   "data-impl": "mmap",
+
+   "checkpoint-activations": true,
+   "checkpoint-num-layers": 1,
+   "partition-activations": true,
+   "synchronize-each-layer": true,
+
+   "gradient_clipping": 1.0,
+   "weight-decay": 0.1,
+   "hidden-dropout": 0.0,
+   "attention-dropout": 0.0,
+
+   "precision": "bfloat16",
+   "bf16": {
+   "enabled": true
+    },
+   
+   "train-iters": 71500,
+   "lr-decay-iters": 71500,
+   "distributed-backend": "nccl",
+   "lr-decay-style": "cosine",
+   "warmup": 0.01,
+   "checkpoint-factor": 10000,
+   "eval-interval": 10000,
+   "eval-iters": 10,
+
+   "log-interval": 200,
+   "steps_per_print": 200,
+   "keep-last-n-checkpoints": 4,
+   "wall_clock_breakdown": false,
+}
+

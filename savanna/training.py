@@ -1,47 +1,66 @@
-#
-# This file has been modified from its original version
-#
-
 """Pretrain utilities."""
+import logging
+import math
+import sys
 from datetime import datetime
 from functools import partial
 
-import math
-import sys
-
-import torch
 import deepspeed
-from deepspeed.runtime.data_pipeline.curriculum_scheduler import CurriculumScheduler
 import numpy as np
+import torch
+from torch.profiler import record_function
 
-from savanna.utils import (
-    Timers,
-    init_wandb,
-    get_ltor_masks_and_position_ids,
-    reduce_losses,
-)
-
-from savanna import print_rank_0, mpu
-from savanna.model import (
-    GPT2ModelPipe,
-    SoftEmbedding,
-    get_params_for_weight_decay_optimization,
-)
+from savanna import mpu, print_rank_0
 from savanna.checkpointing import load_checkpoint, save_checkpoint
 from savanna.data.data_utils import build_train_valid_test_data_iterators
 from savanna.initialize import initialize_megatron
 from savanna.learning_rates import AnnealingLR
 from savanna.logging import tb_wandb_log, training_log
-from savanna.optimizers import SophiaG
-from savanna.utils import (
-    OverflowMonitor,
-    get_noise_scale_logger,
-    get_total_params,
-    CharCounter,
+from savanna.mfu import add_model_flop_utilization_inputs
+from savanna.model import (
+    BackbonePipe,
+    SoftEmbedding,
+    get_params_for_weight_decay_optimization,
+    mark_norms_for_sequence_parallel_grad_sync,
 )
-from savanna.model.gpt2_model import cross_entropy
-from savanna.evals import run_eval_harness
+from savanna.model.backbone import cross_entropy, dpo_loss, oadm_loss
+from savanna.optimizers.sophia import SophiaG
+from savanna.profiler import setup_torch_profiler
+from savanna.tokenizer import CharLevelTokenizer
+from savanna.utils import (
+    CharCounter,
+    OverflowMonitor,
+    Timers,
+    get_diffusion_mask,
+    get_ltor_masks_and_position_ids,
+    get_mlm_masks,
+    get_noise_scale_logger,
+    get_span_masks,
+    get_total_params,
+    init_wandb,
+    make_upper_case,
+    reduce_losses,
+)
 
+logger = logging.getLogger(__name__)
+
+
+class AllocStats:
+    """Compares allocation stats between steps, and Prints on rank 0 when allocations have happened."""
+    def __init__(self, rank):
+        self.rank = rank
+        self.last_stats = None
+
+    def step(self, iteration):
+        s = torch.cuda.memory_stats()
+        stats = {
+            'num_alloc_retries': s['num_alloc_retries'],
+            'num_device_alloc': s['num_device_alloc'],
+            'num_device_free': s['num_device_free'],
+        }
+        if iteration >= 5 and stats != self.last_stats:
+            logger.warning(f"[rank={self.rank}] [gdb] Allocation stats changed between iteration {iteration-1} and {iteration}. This isn't necessarily a problem, but generally indicates high memory pressure and can result in the job running slower: {self.last_stats} -> {stats}. If this warning becomes annoying, feel free to just disable.")
+        self.last_stats = stats
 
 def mup_weights_reinit(global_config, model):
     def has_method(o, name):
@@ -60,7 +79,7 @@ def save_base_shapes(global_config, base_shapes, use_cache):
     # Instantiation of the base model fails in the init function (init_functions.py) because we haven't called set_base_shapes on it at this point, so disable it temporarily here
     global_config.use_mup = False
 
-    base_model = GPT2ModelPipe(
+    base_model = BackbonePipe(
         global_config=global_config,
         num_tokentypes=0,
         parallel_output=True,
@@ -82,11 +101,9 @@ def save_base_shapes(global_config, base_shapes, use_cache):
     del base_model
 
     old_hidden_size = global_config.hidden_size
-    global_config.hidden_size = (
-        global_config.hidden_size * global_config.mup_width_scale
-    )
+    global_config.hidden_size = global_config.hidden_size * global_config.mup_width_scale
 
-    delta_model = GPT2ModelPipe(
+    delta_model = BackbonePipe(
         global_config=global_config,
         num_tokentypes=0,
         parallel_output=True,
@@ -111,17 +128,16 @@ def save_base_shapes(global_config, base_shapes, use_cache):
 
 
 def mup_coord_check(global_config, timers, lr_scheduler, train_data_iterator):
-    from savanna.mup_substitute import get_coord_data
     from mup.coord_check import plot_coord_data
+
+    from savanna.mup_substitute import get_coord_data
 
     def lazy_model(hidden_size):
         def gen():
             old_hidden_size = global_config.hidden_size
             global_config.hidden_size = hidden_size
 
-            model, optimizer, _ = setup_model_and_optimizer(
-                global_config=global_config, use_cache=False
-            )
+            model, optimizer, _ = setup_model_and_optimizer(global_config=global_config, use_cache=False)
 
             global_config.hidden_size = old_hidden_size
 
@@ -132,19 +148,13 @@ def mup_coord_check(global_config, timers, lr_scheduler, train_data_iterator):
     models = {}
 
     # Hidden size needs to be divisible by num attention heads
-    for hidden_size in (
-        global_config.num_attention_heads * (2**p) for p in range(2, 9)
-    ):
+    for hidden_size in (global_config.num_attention_heads * (2**p) for p in range(2, 9)):
         models[hidden_size] = lazy_model(hidden_size)
 
     global_config.use_mup = True
-    df_up = get_coord_data(
-        global_config, timers, lr_scheduler, models, train_data_iterator, mup=True
-    )
+    df_up = get_coord_data(global_config, timers, lr_scheduler, models, train_data_iterator, mup=True)
     global_config.use_mup = False
-    df_sp = get_coord_data(
-        global_config, timers, lr_scheduler, models, train_data_iterator, mup=False
-    )
+    df_sp = get_coord_data(global_config, timers, lr_scheduler, models, train_data_iterator, mup=False)
 
     plot_coord_data(df_up, save_to=f"coord_check_up.{torch.distributed.get_rank()}.jpg")
     plot_coord_data(df_sp, save_to=f"coord_check_sp.{torch.distributed.get_rank()}.jpg")
@@ -178,9 +188,7 @@ def pretrain(global_config):
 
     # Model, optimizer, and learning rate.
     timers("model and optimizer").start()
-    model, optimizer, lr_scheduler = setup_model_and_optimizer(
-        global_config=global_config, use_cache=False
-    )
+    model, optimizer, lr_scheduler = setup_model_and_optimizer(global_config=global_config, use_cache=False)
     timers("model and optimizer").stop()
 
     # Data stuff.
@@ -195,6 +203,10 @@ def pretrain(global_config):
     if global_config.use_mup and global_config.coord_check:
         mup_coord_check(global_config, timers, lr_scheduler, train_data_iterator)
 
+
+    # Calculate model flops for MFU logging
+    add_model_flop_utilization_inputs(global_config=global_config)
+    
     # Print setup timing.
     print_rank_0("done with setups ...")
     timers.log(["model and optimizer", "train/valid/test data iterators"])
@@ -260,19 +272,201 @@ def pretrain(global_config):
         )
 
 
-def _get_batch(global_config, tokenizer, keys, data, datatype):
-    """Support function for get_batch / get_batch pipe (to avoid code repetition)"""
-    data_b = mpu.broadcast_data(keys, data, datatype)
+def _get_batch_dpo(global_config, tokenizer, keys, data, datatype):
+    """
+    A data batch for DPO is formatted in a particular way, dictated by
+    `tools/prepropress_data_dpo.py`.
 
-    # Unpack.
-    tokens_ = data_b["text"].long()
-    labels = tokens_[:, 1:].contiguous()
-    tokens = tokens_[:, :-1].contiguous()
-    # Get the masks and position ids.
+    This function splits the DPO data by pad tokens and prepares it for `dpo_loss`.
+    Of note, the returned `labels` contain both the token ids and, in the last
+    column, the reference loprobs.
+    """
+    datatype = torch.float32  # Note that datatype is not used, force to float32.
+    data_b = mpu.broadcast_data(keys, data, datatype)
+    batch = data_b["text"]
+
+    # Check if CharLevel tokenizer. Currently only the CharLevelTokenizer supports a padding token
+    if isinstance(tokenizer, CharLevelTokenizer):
+        pad_token = global_config.tokenizer.pad
+    else:
+        pad_token = None
+
+    device = batch.device
+    batch_size, length = batch.shape
+
+    text1s, text2s, logprob1s, logprob2s = [], [], [], []
+    for i in range(batch_size):
+        row = batch[i]
+        pads = (row == global_config.tokenizer.pad).nonzero(as_tuple=True)[0]
+
+        text1 = row[: pads[0]]
+        text2 = row[pads[0] + 1 : pads[1]]
+        logprob1 = row[pads[1] + 1].item()
+        logprob2 = row[pads[2] + 1].item()
+
+        text1s.append(text1)
+        text2s.append(text2)
+        logprob1s.append(logprob1)
+        logprob2s.append(logprob2)
+
+    tokens = torch.nn.utils.rnn.pad_sequence(
+        text1s + text2s,
+        batch_first=True,
+        padding_value=global_config.tokenizer.eod,
+    ).long()  # Convert float32 to long.
+
+    # Pad up to the global sequence length.
+    # Note that this is different from `dpo_data_seq_length`.
+    pad_length = global_config.seq_length - tokens.shape[1]
+    assert pad_length >= 0, (
+        "Detected sequence in DPO dataset with length {tokens.shape[1]} when the "
+        "sequence length is {global_config.seq_length}."
+    )
+    if pad_length > 0:
+        padding = (
+            torch.full(
+                (tokens.shape[0], pad_length),
+                global_config.tokenizer.eod,
+            )
+            .long()
+            .to(device)
+        )
+        tokens = torch.concat([tokens, padding], dim=1)
+
+    logprobs_concat = logprob1s + logprob2s
+    ref_logprobs = torch.tensor(logprobs_concat).unsqueeze(1).to(device)
+
+    # Pack token labels and logprobs into a single labels tensor.
+    labels = tokens[:, 1:]
+    labels = torch.concat(
+        [labels, ref_logprobs],
+        dim=1,
+    )  # Concat produces torch.float32.
+    labels = labels.contiguous()
+
+    tokens = tokens[:, :-1].contiguous()
+
+    global_config.eod_mask_loss = True
+
     attention_mask, loss_mask, position_ids = get_ltor_masks_and_position_ids(
         data=tokens,
         eod_token=global_config.tokenizer.eod,
+        pad_token=pad_token,
         eod_mask_loss=global_config.eod_mask_loss,
+        pad_mask_loss=global_config.pad_mask_loss,
+    )
+
+    return tokens, labels, loss_mask, attention_mask, position_ids
+
+
+def _get_batch_mlm(global_config, tokenizer, keys, data, datatype):
+    """Get batch for MLM pretraining. Support function for get_batch"""
+    data_b = mpu.broadcast_data(keys, data, datatype)
+
+    # check if CharLevel tokenizer. Currently only the CharLevelTokenizer supports a padding token
+    if isinstance(tokenizer, CharLevelTokenizer):
+        pad_token = global_config.tokenizer.pad
+    else:
+        pad_token = None
+
+    tokens_ = data_b["text"].long()
+
+    labels = tokens_[:, :-1].contiguous().clone()
+    tokens = tokens_[:, :-1].contiguous()
+
+    tokens, loss_mask, position_ids, attention_mask = get_mlm_masks(
+        data=tokens,
+        eod_token=global_config.tokenizer.eod,
+        pad_token=pad_token,
+        eod_mask_loss=global_config.eod_mask_loss,
+        pad_mask_loss=global_config.pad_mask_loss,
+        padded_vocab_size=global_config.padded_vocab_size,
+    )
+
+    return tokens, labels, loss_mask, attention_mask, position_ids
+
+
+def _get_batch_span_mask(global_config, tokenizer, keys, data, datatype):
+    """Get batch for span mask pretraining. Support function for get_batch"""
+    data_b = mpu.broadcast_data(keys, data, datatype)
+
+    # check if CharLevel tokenizer. Currently only the CharLevelTokenizer supports a padding token
+    if isinstance(tokenizer, CharLevelTokenizer):
+        pad_token = global_config.tokenizer.pad
+    else:
+        pad_token = None
+
+    tokens_ = data_b["text"].long()
+
+    labels = tokens_[:, :].contiguous().clone()
+    tokens = tokens_[:, :].contiguous()
+
+    if global_config.pretraining_strategy == "SPAN_R":
+        randomize_unmask = True
+    else:
+        randomize_unmask = False
+
+    tokens, loss_mask, position_ids, attention_mask = get_span_masks(
+        data=tokens,
+        eod_token=global_config.tokenizer.eod,
+        pad_token=pad_token,
+        eod_mask_loss=global_config.eod_mask_loss,
+        pad_mask_loss=global_config.pad_mask_loss,
+        randomize_unmask=randomize_unmask,
+        padded_vocab_size=global_config.padded_vocab_size,
+    )
+
+    return tokens, labels, loss_mask, attention_mask, position_ids
+
+
+def _get_batch_oadm(global_config, tokenizer, keys, data, datatype):
+    """Get batch for OADM pretraining. Support function for get_batch"""
+    data_b = mpu.broadcast_data(keys, data, datatype)
+
+    # check if CharLevel tokenizer. Currently only the CharLevelTokenizer supports a padding token
+    if isinstance(tokenizer, CharLevelTokenizer):
+        pad_token = global_config.tokenizer.pad
+    else:
+        pad_token = None
+
+    tokens_ = data_b["text"].long()
+
+    labels = tokens_[:, :].contiguous().clone()
+    tokens = tokens_[:, :].contiguous()
+
+    tokens, loss_mask, position_ids, attention_mask = get_diffusion_mask(
+        data=tokens,
+        eod_token=global_config.tokenizer.eod,
+        pad_token=pad_token,
+        eod_mask_loss=global_config.eod_mask_loss,
+        pad_mask_loss=global_config.pad_mask_loss,
+    )
+
+    return tokens, labels, loss_mask, attention_mask, position_ids
+
+
+def _get_batch_ar(global_config, tokenizer, keys, data, datatype):
+    """Get batch for AR pretraining. Support function for get_batch"""
+    data_b = mpu.broadcast_data(keys, data, datatype)
+
+    # check if CharLevel tokenizer. Currently only the CharLevelTokenizer supports a padding token
+    if isinstance(tokenizer, CharLevelTokenizer):
+        pad_token = global_config.tokenizer.pad
+    else:
+        pad_token = None
+
+    tokens_ = data_b["text"].long()
+
+    labels = tokens_[:, 1:].contiguous()
+    tokens = tokens_[:, :-1].contiguous()
+
+    attention_mask, loss_mask, position_ids = get_ltor_masks_and_position_ids(
+        data=tokens,
+        eod_token=global_config.tokenizer.eod,
+        pad_token=pad_token,
+        eod_mask_loss=global_config.eod_mask_loss,
+        pad_mask_loss=global_config.pad_mask_loss,
+        materialize_attn_mask=global_config.materialize_attn_mask,
     )
 
     return tokens, labels, loss_mask, attention_mask, position_ids
@@ -290,6 +484,18 @@ def get_batch(global_config, data_iterator):
         data = next(data_iterator)
     else:
         data = None
+
+    if global_config.alignment_method == "dpo":
+        _get_batch = _get_batch_dpo
+    elif global_config.pretraining_strategy == "AR":
+        _get_batch = _get_batch_ar
+    elif global_config.pretraining_strategy == "MLM":
+        _get_batch = _get_batch_mlm
+    elif global_config.pretraining_strategy == "SPAN" or global_config.pretraining_strategy == "SPAN_R":
+        _get_batch = _get_batch_span_mask
+    elif global_config.pretraining_strategy == "OADM":
+        _get_batch = _get_batch_oadm
+
     return _get_batch(
         global_config=global_config,
         tokenizer=global_config.tokenizer,
@@ -305,14 +511,24 @@ def get_batch_pipe(data, global_config, curr_scheduler=None):
     keys = ["text"]
     datatype = torch.int64
 
+    if global_config.alignment_method == "dpo":
+        _get_batch = _get_batch_dpo
+    elif global_config.pretraining_strategy == "AR":
+        _get_batch = _get_batch_ar
+    elif global_config.pretraining_strategy == "MLM":
+        _get_batch = _get_batch_mlm
+    elif global_config.pretraining_strategy == "SPAN" or global_config.pretraining_strategy == "SPAN_R":
+        _get_batch = _get_batch_span_mask
+    elif global_config.pretraining_strategy == "OADM":
+        _get_batch = _get_batch_oadm
+
     tokens, labels, loss_mask, attention_mask, position_ids = _get_batch(
         global_config, global_config.tokenizer, keys, data, datatype
     )
+
     if curr_scheduler is not None:
         # iteration + 1 to align with how/when DeepSpeed updates the buffers
-        curriculum_seqlen = curr_scheduler.update_difficulty(
-            global_config.iteration + 1
-        )
+        curriculum_seqlen = curr_scheduler.update_difficulty(global_config.iteration + 1)
         if curriculum_seqlen < tokens.size()[1]:
             # seqlen-based curriculum learning
             # input_ids, position_ids, labels have size [batch size, seqlen]
@@ -324,17 +540,13 @@ def get_batch_pipe(data, global_config, curr_scheduler=None):
             if loss_mask is not None:
                 loss_mask = loss_mask[:, :curriculum_seqlen].contiguous()
             # attention_mask has size [1, 1, seqlen, seqlen]
-            attention_mask = attention_mask[
-                :, :, :curriculum_seqlen, :curriculum_seqlen
-            ].contiguous()
+            attention_mask = attention_mask[:, :, :curriculum_seqlen, :curriculum_seqlen].contiguous()
 
     # unpack data
     return (tokens, position_ids, attention_mask), (labels, loss_mask)
 
 
-def forward_step(
-    data_iterator, model, global_config, timers, return_logits=False, is_train=False
-):
+def forward_step(data_iterator, model, global_config, timers, return_logits=False, is_train=False):
     """Forward step."""
     if global_config.is_pipe_parallel:
         return model.eval_batch(data_iterator, return_logits=return_logits)
@@ -345,6 +557,10 @@ def forward_step(
     tokens, labels, loss_mask, attention_mask, position_ids = get_batch(
         global_config=global_config, data_iterator=data_iterator
     )
+
+    if global_config.to_upper == "upper" or global_config.to_upper == "weighted":
+        tokens, _ = make_upper_case(tokens)
+        labels, lowercase_mask = make_upper_case(labels)
 
     if timers is not None:
         timers("batch generator").stop()
@@ -357,9 +573,47 @@ def forward_step(
     ):
         loss_mask = loss_mask[:, : global_config.curriculum_seqlen].contiguous()
         labels = labels[:, : global_config.curriculum_seqlen].contiguous()
-    loss = cross_entropy(
-        outputs, (labels, loss_mask), _fp16=global_config.fp16_lm_cross_entropy
-    )
+
+    if global_config.alignment_method is None:
+
+        if global_config.pretraining_strategy == "OADM":
+            loss = oadm_loss(outputs, (labels, loss_mask), _fp16=global_config.fp16_lm_cross_entropy)
+        else:
+            if global_config.to_upper == "weighted":
+                upper_loss_mask = loss_mask.bool() & (~lowercase_mask.bool())
+                lower_loss_mask = loss_mask.bool() & lowercase_mask.bool()
+
+                upper_loss_mask = upper_loss_mask.to(labels.dtype)
+                lower_loss_mask = lower_loss_mask.to(labels.dtype)
+
+                losses = cross_entropy(
+                    outputs, (labels, loss_mask), _fp16=global_config.fp16_lm_cross_entropy, reduce=False
+                )
+
+                upper_loss_mask = upper_loss_mask.view(-1)
+                lower_loss_mask = lower_loss_mask.view(-1)
+                upper_case_loss = torch.sum(losses.view(-1) * upper_loss_mask.view(-1))
+                lower_case_loss = torch.sum(losses.view(-1) * lower_loss_mask.view(-1))
+
+                combined_loss = (
+                    upper_case_loss + global_config.lowercase_loss_reweighting * lower_case_loss
+                ) / (upper_loss_mask.sum() + lower_loss_mask.sum())
+
+                return combined_loss
+
+            else:
+                loss = cross_entropy(outputs, (labels, loss_mask), _fp16=global_config.fp16_lm_cross_entropy)
+
+    elif global_config.alignment_method == "dpo":
+        loss = dpo_loss(
+            outputs,
+            (labels, loss_mask),
+            _fp16=global_config.fp16_lm_cross_entropy,
+            beta=global_config.dpo_beta,
+        )
+    else:
+        raise ValueError(f"Invalid alignment_method {global_config.alignment_method}.")
+
     if return_logits:
         return loss, outputs
     return loss
@@ -368,14 +622,11 @@ def forward_step(
 def get_model(global_config, use_cache=False):
     """Build the model."""
 
-    # Build model on cpu.
-    print_rank_0("building GPT2 model ...")
-
     # Temporarily disable mup so that the base model does not use the mup init functions before set_base_shapes is called below.
     # If mup isn't being used anyways, this has no effect.
     old_use_mup = global_config.use_mup
     global_config.use_mup = False
-    model = GPT2ModelPipe(
+    model = BackbonePipe(
         global_config=global_config,
         num_tokentypes=0,
         parallel_output=True,
@@ -384,9 +635,8 @@ def get_model(global_config, use_cache=False):
     )
 
     ### soft prompt tuning stuff ###
-    if (
-        global_config.soft_prompt_tuning is not None
-        and global_config.soft_prompt_tuning.get("enabled", False)
+    if global_config.soft_prompt_tuning is not None and global_config.soft_prompt_tuning.get(
+        "enabled", False
     ):
         soft_prompt = SoftEmbedding(
             global_config,
@@ -460,8 +710,7 @@ def get_optimizer(model, global_config):
 
     # If we're using mup, then the optimizer must be adam or sgd
     assert not global_config.use_mup or (
-        global_config.optimizer_type.lower() == "adam"
-        or global_config.optimizer_type.lower() == "sgd"
+        global_config.optimizer_type.lower() == "adam" or global_config.optimizer_type.lower() == "sgd"
     ), f"If use_mup == True, you must specify either the adam or sgd optimizers. You passed: {global_config.optimizer_type.lower()}"
 
     if global_config.optimizer_type.lower() in ["cpu_adam", "cpu_torch_adam"]:
@@ -481,11 +730,11 @@ def get_optimizer(model, global_config):
         optimizer = None
         # onebitadam needs to be instantiated within the deepspeed engine to work :|
     elif global_config.optimizer_type.lower() == "sm3":
-        from .optimizers import SM3
+        from .optimizers.sm3 import SM3
 
         optimizer = SM3(param_groups, **global_config.optimizer["params"])
     elif global_config.optimizer_type.lower() == "madgrad_wd":
-        from .optimizers import madgrad_wd
+        from .optimizers.sm3 import madgrad_wd
 
         optimizer = madgrad_wd(
             param_groups,
@@ -520,9 +769,7 @@ def get_optimizer(model, global_config):
                     from apex.optimizers import FusedAdam as Adam
                 except ImportError:
                     # if apex isn't installed, use deepspeed's FusedAdam
-                    print(
-                        "WARNING: APEX not installed - defaulting to deepspeed's fused adam"
-                    )
+                    print("WARNING: APEX not installed - defaulting to deepspeed's fused adam")
                     from deepspeed.ops.adam import FusedAdam as Adam
                 # from deepspeed.ops.adam import FusedAdam as Adam
                 # from torch.optim import Adam
@@ -551,9 +798,7 @@ def get_optimizer(model, global_config):
             **global_config.optimizer["params"],
         )
     else:
-        raise ValueError(
-            f"Optimizer type {global_config.optimizer_type} not recognized"
-        )
+        raise ValueError(f"Optimizer type {global_config.optimizer_type} not recognized")
 
     if global_config.deepspeed:
         # fp16 wrapper is not required for DeepSpeed.
@@ -619,11 +864,13 @@ def get_learning_rate_scheduler(optimizer, global_config):
 
 def setup_model_and_optimizer(global_config, use_cache=False, iteration=None):
     """Setup model and optimizer."""
-    model = get_model(global_config=global_config, use_cache=use_cache)
+    from deepspeed.utils import groups
+    if (partition_size := global_config.zero_optimization.get("zero_hpz_partition_size")) is not None:
+        groups._create_zero_param_parallel_group(partition_size)
+    with deepspeed.zero.Init(dtype=global_config.params_dtype, enabled=global_config.zero_optimization["stage"] == 3, zero_param_parallel_group=groups._ZERO_PARAM_INTRA_PARALLEL_GROUP, sequence_data_parallel_group=mpu.get_data_parallel_group()) as init:
+        model = get_model(global_config=global_config, use_cache=use_cache)
     optimizer, param_groups = get_optimizer(model=model, global_config=global_config)
-    lr_scheduler = get_learning_rate_scheduler(
-        optimizer=optimizer, global_config=global_config
-    )
+    lr_scheduler = get_learning_rate_scheduler(optimizer=optimizer, global_config=global_config)
 
     if global_config.deepspeed:
         print_rank_0("DeepSpeed is enabled.")
@@ -647,9 +894,15 @@ def setup_model_and_optimizer(global_config, use_cache=False, iteration=None):
         model.total_params = get_total_params(model.module)
         print_rank_0(f' > total params: {"{:,}".format(model.total_params)}')
 
+        mark_norms_for_sequence_parallel_grad_sync(model, global_config)
+
         if global_config.is_pipe_parallel:
             model.set_has_attention_mask(True)
             if global_config.curriculum_learning:
+                from deepspeed.runtime.data_pipeline.curriculum_scheduler import (
+                    CurriculumScheduler,
+                )
+
                 curr_scheduler = CurriculumScheduler(global_config.curriculum_learning)
                 if iteration is not None and iteration > 0:
                     curr_scheduler.update_difficulty(iteration)
@@ -673,11 +926,15 @@ def setup_model_and_optimizer(global_config, use_cache=False, iteration=None):
             lr_scheduler=lr_scheduler,
             iteration=iteration,
         )
-        print_rank_0(
-            f"Loading checkpoint and starting from iteration {global_config.iteration}"
-        )
+        print_rank_0(f"Loading checkpoint and starting from iteration {global_config.iteration}")
     else:
         global_config.iteration = 0
+
+    # need this for correct lr scheduling resume from ckpt
+    # current patch in deepspeed doesn't handle this correctly (eventually fixed in later versions)
+    lr_scheduler.optimizer = model.optimizer
+    lr_scheduler.param_groups = model.optimizer.param_groups
+    lr_scheduler.model = model
 
     return model, optimizer, lr_scheduler
 
@@ -704,7 +961,6 @@ def backward_step(global_config, timers, optimizer, model, loss):
 def train_step(global_config, timers, data_iterator, model, optimizer, lr_scheduler):
     """Single training step."""
 
-    # Pipeline parallelism schedules forward/backward/step
     if global_config.is_pipe_parallel:
         reduced_loss = train_step_pipe(
             global_config=global_config,
@@ -714,37 +970,51 @@ def train_step(global_config, timers, data_iterator, model, optimizer, lr_schedu
         )
     else:
         losses = []
+
         for _ in range(global_config.gradient_accumulation_steps):
             # Forward model for one step.
             timers("forward").start()
-            loss = forward_step(
-                global_config=global_config,
-                timers=timers,
-                data_iterator=data_iterator,
-                model=model,
-                is_train=True,
-            )
+            with record_function("TRAIN_STEP_FORWARD"):
+                if global_config.to_upper == "weighted":
+                    loss = forward_step(
+                        global_config=global_config,
+                        timers=timers,
+                        data_iterator=data_iterator,
+                        model=model,
+                        is_train=True,
+                    )
+                else:
+                    loss = forward_step(
+                        global_config=global_config,
+                        timers=timers,
+                        data_iterator=data_iterator,
+                        model=model,
+                        is_train=True,
+                    )
             timers("forward").stop()
             losses.append(loss)
+
             # Calculate gradients, reduce across processes, and clip.
             timers("backward").start()
-            backward_step(
-                global_config=global_config,
-                timers=timers,
-                optimizer=optimizer,
-                model=model,
-                loss=loss,
-            )
+            with record_function("TRAIN_STEP_BACKWARD"):
+                backward_step(
+                    global_config=global_config,
+                    timers=timers,
+                    optimizer=optimizer,
+                    model=model,
+                    loss=loss,
+                )
             timers("backward").stop()
             # Update parameters.
             timers("optimizer").start()
-            if global_config.deepspeed:
-                model.step()
-            else:
-                raise ValueError("Must be using deepspeed to run neox")
+            with record_function("TRAIN_STEP_OPTIMIZER_STEP"):
+                if global_config.deepspeed:
+                    model.step()
+                else:
+                    raise ValueError("Must be using deepspeed to run neox")
             timers("optimizer").stop()
         reduced_loss = {
-            "lm_loss": reduce_losses(losses).mean()
+            "lm_loss": reduce_losses(losses).mean(),
         }  # reduces losses across machines for logging
 
     if global_config.precision == "fp16" and model.optimizer.overflow:
@@ -758,8 +1028,17 @@ def train_step(global_config, timers, data_iterator, model, optimizer, lr_schedu
 def train_step_pipe(global_config, timers, model, data_iterator):
     """Single training step with DeepSpeed's pipeline parallel engine."""
     assert global_config.deepspeed
-    loss = model.train_batch(data_iter=data_iterator)
+
+    with record_function("TRAIN_STEP_PIPE"):
+        loss = model.train_batch(data_iter=data_iterator)
+    # additiona_losses = model.get_additional_losses()
+
     loss_dict = {"lm_loss": loss}
+    # loss_dict = {**loss_dict, **additiona_losses}
+
+    # if global_config.to_upper == 'weighted':
+    #     loss_dict['upper_loss'] = sub_losses[0]
+    #     loss_dict['lower_loss'] = sub_losses[1]
     # Don't break Megatron's timers because we changed code paths.
     for t in [
         "forward",
@@ -783,6 +1062,7 @@ def train(
     valid_data_iterator,
 ):
     """Train the model function."""
+    torch.autograd.grad_mode.set_multithreading_enabled(False)
 
     # Turn on training mode which enables dropout.
     model.train()
@@ -801,7 +1081,34 @@ def train(
 
     # to monitor if we've skipped many iterations in a row and trigger an early exit
     overflow_monitor = OverflowMonitor(optimizer)
+
+    # Initialize torch.profiler
+    # if profiling is not enabled, will return a null context / no-op profiler
+    profiler = setup_torch_profiler(
+        enable=global_config.should_profile,
+        cpu=global_config.profile_cpu,
+        cuda=global_config.profile_cuda,
+        profile_memory=global_config.profile_memory,
+        with_stack=global_config.profile_with_stack,
+        record_shapes=global_config.profile_record_shapes,
+        with_flops=global_config.profile_with_flops,
+        wait=global_config.profiler_schedule_wait,
+        warmup=global_config.profiler_schedule_warmup,
+        active=global_config.profiler_schedule_active,
+        repeat=global_config.profiler_schedule_repeat,
+        output_dir=global_config.profiler_output_dir,
+        clean_output_dir=global_config.profiler_clean_output_dir,
+        num_rows=global_config.profiler_num_rows,
+    )
+    alloc_stats = AllocStats(torch.distributed.get_rank())
+    if isinstance(profiler, tuple):
+        profiler = profiler[0]
+    profiler.start()
+
     while iteration < global_config.train_iters:
+        profiler.step()
+        alloc_stats.step(iteration)
+
         loss_dict, skipped_iter = train_step(
             global_config=global_config,
             timers=timers,
@@ -812,6 +1119,11 @@ def train(
         )
         iteration += 1
         global_config.iteration = iteration
+
+        if global_config.train_data_token_index is not None:
+            global_config.train_data_token_index += (
+                global_config.train_batch_size * global_config.seq_length
+            )
 
         if global_config.precision == "fp16":
             overflow_monitor.check(skipped_iter)  # check for repeated overflow
@@ -834,9 +1146,7 @@ def train(
             total_loss_dict=total_loss_dict,
             learning_rate=lr,
             iteration=iteration,
-            loss_scale=optimizer.cur_scale
-            if global_config.precision == "fp16"
-            else None,
+            loss_scale=optimizer.cur_scale if global_config.precision == "fp16" else None,
             report_memory_flag=report_memory_flag,
             skipped_iter=skipped_iter,
             model=model,
@@ -877,18 +1187,14 @@ def train(
             time_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             rank = torch.distributed.get_rank()
             print_rank_0(
-                "rank: {} | time: {} | exiting the program at iteration {}".format(
-                    rank, time_str, iteration
-                )
+                "rank: {} | time: {} | exiting the program at iteration {}".format(rank, time_str, iteration)
             )
             sys.exit()
 
     return iteration
 
 
-def evaluate(
-    global_config, forward_step_fn, data_iterator, model, verbose=False, timers=None
-):
+def evaluate(global_config, forward_step_fn, data_iterator, model, verbose=False, timers=None):
     """Evaluation.
     global_config: NeoX Arguments
     forward_step_fn: function with args `global_config, timers,
@@ -909,17 +1215,13 @@ def evaluate(
         while iteration < global_config.eval_iters:
             iteration += 1
             if verbose and iteration % global_config.log_interval == 0:
-                print_rank_0(
-                    "Evaluating iter {}/{}".format(iteration, global_config.eval_iters)
-                )
+                print_rank_0("Evaluating iter {}/{}".format(iteration, global_config.eval_iters))
 
             # although we're not accumulating gradients here, we count one iter as train_batch_size_per_gpu * g.a.s
             # to be consistent with deepspeed's pipe parallel engine
             # since pipe parallel already takes gas into account - default to 1 here if pipe parallel is true
             for _ in range(
-                1
-                if global_config.is_pipe_parallel
-                else global_config.gradient_accumulation_steps
+                1 if global_config.is_pipe_parallel else global_config.gradient_accumulation_steps
             ):
                 # Forward evaluation
                 loss = forward_step_fn(
@@ -934,10 +1236,7 @@ def evaluate(
             # allocated by the optimizations are deallocated during backward pass
             # in the absence of backward pass the buffers should be reset after each
             # forward pass
-            if (
-                global_config.deepspeed
-                and global_config.deepspeed_activation_checkpointing
-            ):
+            if global_config.deepspeed and global_config.deepspeed_activation_checkpointing:
                 deepspeed.checkpointing.reset()
 
     # reduces losses across processes for logging & run eval harness tasks
@@ -952,19 +1251,17 @@ def evaluate(
         print_rank_0(f"Counting chars took {data_iterator.total_time} seconds")
 
         data_iterator = data_iterator.data_iterator
-        eval_results["lm_loss_char_lvl_ppl"] = math.exp(
-            eval_results["lm_loss"] * tokens_per_char
-        )
+        eval_results["lm_loss_char_lvl_ppl"] = math.exp(eval_results["lm_loss"] * tokens_per_char)
 
-    if global_config.eval_tasks:
-        eval_results.update(
-            run_eval_harness(
-                model,
-                forward_step_fn,
-                global_config,
-                eval_tasks=global_config.eval_tasks,
-            ).get("results")
-        )
+    # if global_config.eval_tasks:
+    #     eval_results.update(
+    #         run_eval_harness(
+    #             model,
+    #             forward_step_fn,
+    #             global_config,
+    #             eval_tasks=global_config.eval_tasks,
+    #         ).get("results")
+    #     )
     # Move model back to the train mode.
     model.train()
     return eval_results

@@ -1,5 +1,4 @@
 """Batch samplers that work with either random or sequential data samplers."""
-
 import torch
 from torch.utils import data
 
@@ -37,8 +36,7 @@ class RandomSampler(data.sampler.Sampler):
             )
         if not isinstance(self.replacement, bool):
             raise ValueError(
-                "replacement should be a boolean value, but got "
-                "replacement={}".format(self.replacement)
+                "replacement should be a boolean value, but got " "replacement={}".format(self.replacement)
             )
 
     @property
@@ -55,9 +53,7 @@ class RandomSampler(data.sampler.Sampler):
             g.manual_seed(self.epoch)
         if self.replacement:
             return iter(
-                torch.randint(
-                    high=n, size=(self.num_samples,), dtype=torch.int64, generator=g
-                ).tolist()
+                torch.randint(high=n, size=(self.num_samples,), dtype=torch.int64, generator=g).tolist()
             )
         return iter(torch.randperm(n, generator=g).tolist())
 
@@ -113,9 +109,8 @@ class DistributedBatchSampler(data.sampler.BatchSampler):
         for idx in self.data_iterator(self.sampler, wrap_around=False):
             batch.append(idx)
             if len(batch) == self.batch_size:
-                tbatch = self._batch(batch)
                 if i >= self.start_iter:
-                    yield tbatch
+                    yield self._batch(batch)
                     self.start_iter = 0
                 i += 1
                 batch = []

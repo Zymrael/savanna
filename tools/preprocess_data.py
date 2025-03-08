@@ -1,5 +1,4 @@
 """Processing data for pretraining."""
-
 import argparse
 import multiprocessing
 import os
@@ -8,9 +7,7 @@ import sys
 import lm_dataformat as lmd
 import numpy as np
 
-sys.path.append(
-    os.path.abspath(os.path.join(os.path.dirname(__file__), os.path.pardir))
-)
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.path.pardir)))
 import time
 import tqdm
 import torch
@@ -36,10 +33,21 @@ class Encoder(object):
         for key in self.args.jsonl_keys:
             doc_ids = []
             text_ids = Encoder.tokenizer.tokenize(text)
+            if (
+                self.args.enforce_sample_length
+                and (len(text_ids) + int(self.args.append_eod)) > self.args.enforce_sample_length
+            ):
+                raise ValueError(
+                    "Detected input text with a length greater than the maximum "
+                    f"possible sample length of {self.args.enforce_sample_length}.)"
+                )
             if len(text_ids) > 0:
                 doc_ids.append(text_ids)
             if self.args.append_eod:
                 doc_ids[-1].append(Encoder.tokenizer.eod)
+            if self.args.enforce_sample_length:
+                # Pad up to max sequence length.
+                doc_ids[-1] += [Encoder.tokenizer.pad] * (self.args.enforce_sample_length - len(doc_ids[-1]))
             ids[key] = doc_ids
         return ids, len(text)
 
@@ -80,9 +88,7 @@ def get_args():
         ],
         help="What type of tokenizer to use.",
     )
-    group.add_argument(
-        "--vocab-file", type=str, default=None, help="Path to the vocab file"
-    )
+    group.add_argument("--vocab-file", type=str, default=None, help="Path to the vocab file")
     group.add_argument(
         "--merge-file",
         type=str,
@@ -93,6 +99,12 @@ def get_args():
         "--append-eod",
         action="store_true",
         help="Append an <eod> token to the end of a document.",
+    )
+    group.add_argument(
+        "--enforce-sample-length",
+        type=int,
+        default=None,
+        help="Forces all samples to have the specified length. If shorter, pads up to the length. If longer, throws an error.",
     )
     group.add_argument("--ftfy", action="store_true", help="Use ftfy to clean text")
     group = parser.add_argument_group(title="output data")
@@ -111,9 +123,7 @@ def get_args():
     )
 
     group = parser.add_argument_group(title="runtime")
-    group.add_argument(
-        "--workers", type=int, default=1, help="Number of worker processes to launch"
-    )
+    group.add_argument("--workers", type=int, default=1, help="Number of worker processes to launch")
     group.add_argument(
         "--log-interval",
         type=int,
@@ -178,12 +188,8 @@ def main():
     builders = {}
     tokenizer_name = tokenizer.name.replace(" ", "")
     for key in args.jsonl_keys:
-        output_bin_files[key] = "{}_{}_{}_{}.bin".format(
-            args.output_prefix, key, tokenizer_name, "document"
-        )
-        output_idx_files[key] = "{}_{}_{}_{}.idx".format(
-            args.output_prefix, key, tokenizer_name, "document"
-        )
+        output_bin_files[key] = "{}_{}_{}_{}.bin".format(args.output_prefix, key, tokenizer_name, "document")
+        output_idx_files[key] = "{}_{}_{}_{}.idx".format(args.output_prefix, key, tokenizer_name, "document")
         builders[key] = indexed_dataset.make_builder(
             output_bin_files[key],
             impl=args.dataset_impl,
@@ -204,7 +210,7 @@ def main():
         for key, sentences in doc.items():
             for sentence in sentences:
                 builders[key].add_item(np.array(sentence, dtype=builders[key].dtype))
-            # separate with eos token
+            # tell the builder that a document has finished
             builders[key].end_document()
 
         # log progress

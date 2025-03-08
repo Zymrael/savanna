@@ -191,13 +191,9 @@ def distributed_test(world_size=2, backend="nccl"):
                     p.terminate()
                     pytest.fail(f"Worker {rank} hung.", pytrace=False)
                 if p.exitcode < 0:
-                    pytest.fail(
-                        f"Worker {rank} killed by signal {-p.exitcode}", pytrace=False
-                    )
+                    pytest.fail(f"Worker {rank} killed by signal {-p.exitcode}", pytrace=False)
                 if p.exitcode > 0:
-                    pytest.fail(
-                        f"Worker {rank} exited with code {p.exitcode}", pytrace=False
-                    )
+                    pytest.fail(f"Worker {rank} exited with code {p.exitcode}", pytrace=False)
 
         def run_func_decorator(*func_args, **func_kwargs):
             """Entry point for @distributed_test()."""
@@ -206,9 +202,7 @@ def distributed_test(world_size=2, backend="nccl"):
 
             if isinstance(world_size, int):
                 if gpus < world_size:
-                    pytest.mark.skip(
-                        reason=f"at least {world_size} GPUs are required to run this test"
-                    )
+                    pytest.mark.skip(reason=f"at least {world_size} GPUs are required to run this test")
                     return
 
                 dist_launcher(world_size, *func_args, **func_kwargs)
@@ -225,7 +219,7 @@ def distributed_test(world_size=2, backend="nccl"):
 
 
 def model_setup(yaml_list=None, param_dict=None, clear_data=True):
-    from savanna.neox_arguments import GlobalConfig
+    from savanna.arguments import GlobalConfig
     from savanna.mpu import destroy_model_parallel
     from savanna import initialize_megatron
     from savanna.training import setup_model_and_optimizer
@@ -251,9 +245,7 @@ def model_setup(yaml_list=None, param_dict=None, clear_data=True):
 
     # initially load config from files as would be the case in deepy.py
     if yaml_list is not None:
-        args_loaded = GlobalConfig.from_ymls(
-            yaml_list, overwrite_values=overwrite_values
-        )
+        args_loaded = GlobalConfig.from_ymls(yaml_list, overwrite_values=overwrite_values)
     else:
         p_dict = param_dict.copy()
         p_dict.update(overwrite_values)
@@ -262,9 +254,7 @@ def model_setup(yaml_list=None, param_dict=None, clear_data=True):
     args_loaded.build_tokenizer()
 
     initialize_megatron(global_config=args_loaded)
-    model, optimizer, lr_scheduler = setup_model_and_optimizer(
-        global_config=args_loaded, use_cache=True
-    )
+    model, optimizer, lr_scheduler = setup_model_and_optimizer(global_config=args_loaded, use_cache=True)
     return model, optimizer, lr_scheduler, args_loaded
 
 
@@ -286,9 +276,7 @@ def bounded_product(sequence, n=None, seed=None):
     return p if n is None else p[:n]
 
 
-def parametrize(
-    params_to_test: dict, max_tests: int = 50, seed: int = None, with_names=True
-):
+def parametrize(params_to_test: dict, max_tests: int = 50, seed: int = None, with_names=True):
     """
     Generates a random sample of max_tests length of all possible combinations of values in
     `params_to_test`.

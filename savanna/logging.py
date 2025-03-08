@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import sys
+
 import torch
 
 try:
@@ -20,8 +21,55 @@ try:
 except ModuleNotFoundError:
     pass
 
+import logging
+import os
+
+import torch.distributed as dist
+
 from savanna import mpu, print_rank_0
 from savanna.utils import report_memory
+
+logger = logging.getLogger()
+
+
+# from torchtune.logging
+def get_world_size_and_rank():
+    """Function that gets the current world size (aka total number
+    of ranks) and rank number of the current process in the default process group.
+
+    Returns:
+        Tuple[int, int]: world size, rank
+    """
+    if dist.is_available() and dist.is_initialized():
+        return torch.distributed.get_world_size(), torch.distributed.get_rank()
+    else:
+        return 1, 0
+
+
+def init_logger():
+    logger.setLevel(logging.WARNING)
+    ch = logging.StreamHandler()
+    ch.setLevel(logging.WARNING)
+    formatter = logging.Formatter(
+        "%(asctime)s - %(name)s | %(levelname)s | %(pathname)s:%(lineno)d: %(message)s"
+    )
+    ch.setFormatter(formatter)
+    logger.addHandler(ch)
+
+    # suppress verbose torch.profiler logging
+    os.environ["KINETO_LOG_LEVEL"] = "5"
+
+
+def log_norm(norm, key, iteration_no):
+    if norm is not None:
+        tb_wandb_log(
+            key,
+            norm,
+            iteration_no,
+            use_wandb=True,
+            tensorboard_writer=None,
+            all_ranks=False,
+        )
 
 
 class Tee:
@@ -80,18 +128,11 @@ def human_readable_flops(num):
 
 def get_flops(global_config, model, iter_time_s):
     world_size = torch.distributed.get_world_size()
-    ff = model.total_params * 6
-    attn = (
-        global_config.seq_length
-        * global_config.hidden_size
-        * global_config.num_layers
-        * 60
-    )
+    total_params = sum(p.ds_numel if getattr(p, 'ds_tensor', None) is not None else p.numel() for p in model.parameters())
+    ff = total_params * 6
+    attn = global_config.seq_length * global_config.hidden_size * global_config.num_layers * 60
     flops = (
-        global_config.train_batch_size
-        * global_config.seq_length
-        * (ff + attn)
-        / (iter_time_s * world_size)
+        global_config.train_batch_size * global_config.seq_length * (ff + attn) / (iter_time_s * world_size)
     )
     return flops
 
@@ -114,9 +155,7 @@ def training_log(
 
     # Update losses.
     skipped_iters_key = "skipped iterations"
-    total_loss_dict[skipped_iters_key] = (
-        total_loss_dict.get(skipped_iters_key, 0) + skipped_iter
-    )
+    total_loss_dict[skipped_iters_key] = total_loss_dict.get(skipped_iters_key, 0) + skipped_iter
     got_nan_key = "got nan"
 
     got_nan = False
@@ -152,18 +191,13 @@ def training_log(
         if normalizer == 0:
             normalizer = global_config.log_interval
         if torch.distributed.get_rank() == 0:
-            timers.write(
-                names=timers_to_log, iteration=iteration, normalizer=normalizer
-            )
+            timers.write(names=timers_to_log, iteration=iteration, normalizer=normalizer)
     else:
         # with pipeline parallel, the megatron timers are overridden by the deepspeed ones.
         # Try to grab timer values from model engine. Only recently added to deeperspeed, so check that the engine
         # has that attribute first
         if hasattr(model, "timer_values") and model.timer_values is not None:
-            if (
-                model.wall_clock_breakdown()
-                and model.global_steps % model.steps_per_print() == 0
-            ):
+            if model.wall_clock_breakdown() and model.global_steps % model.steps_per_print() == 0:
                 timer_values = model.timer_values
                 # deepspeed already logs to tensorboard / prints values, so just log to wandb
                 if global_config.use_wandb and torch.distributed.get_rank() == 0:
@@ -227,20 +261,13 @@ def training_log(
                     )
 
     # (optional) Log grad/param norms to wandb / tb every step
-    if (
-        global_config.log_grad_pct_zeros
-        or global_config.log_grad_norm
-        or global_config.log_param_norm
-    ):
+    if global_config.log_grad_pct_zeros or global_config.log_grad_norm or global_config.log_param_norm:
         if global_config.log_grad_pct_zeros or global_config.log_grad_norm:
             model.store_gradients = True  # start storing gradients
 
         for i, (name, param) in enumerate(model.module.named_parameters()):
             if global_config.log_grad_pct_zeros:
-                if (
-                    hasattr(model, "stored_gradients")
-                    and model.stored_gradients is not None
-                ):
+                if hasattr(model, "stored_gradients") and model.stored_gradients is not None:
                     grad = model.stored_gradients[i]
                     if grad is not None:
                         tb_wandb_log(
@@ -252,10 +279,7 @@ def training_log(
                             all_ranks=True,
                         )
             if global_config.log_grad_norm:
-                if (
-                    hasattr(model, "stored_gradients")
-                    and model.stored_gradients is not None
-                ):
+                if hasattr(model, "stored_gradients") and model.stored_gradients is not None:
                     grad = model.stored_gradients[i]
                     if grad is not None:
                         tb_wandb_log(
@@ -296,16 +320,12 @@ def training_log(
             use_wandb=global_config.use_wandb,
             tensorboard_writer=global_config.tensorboard_writer,
         )
-        log_string += " iteration {:8d}/{:8d} |".format(
-            iteration, global_config.train_iters
-        )
+        log_string += " iteration {:8d}/{:8d} |".format(iteration, global_config.train_iters)
         log_string += " elapsed time per iteration (ms): {:.1f} |".format(
             elapsed_time * 1000.0 / global_config.log_interval
         )
         log_string += " learning rate: {:.3E} |".format(learning_rate)
-        num_iterations = max(
-            1, global_config.log_interval - total_loss_dict[skipped_iters_key]
-        )
+        num_iterations = max(1, global_config.log_interval - total_loss_dict[skipped_iters_key])
 
         # log curriculum learning
         if global_config.curriculum_learning:
@@ -318,12 +338,8 @@ def training_log(
             )
 
         # log tflop / gpu
-        flops_per_s_per_gpu = get_flops(
-            global_config=global_config, model=model, iter_time_s=iteration_time
-        )
-        log_string += (
-            f" approx flops per GPU: {human_readable_flops(flops_per_s_per_gpu)} |"
-        )
+        flops_per_s_per_gpu = get_flops(global_config=global_config, model=model, iter_time_s=iteration_time)
+        log_string += f" approx flops per GPU: {human_readable_flops(flops_per_s_per_gpu)} |"
         tb_wandb_log(
             "runtime/flops_per_sec_per_gpu",
             flops_per_s_per_gpu,
@@ -332,6 +348,93 @@ def training_log(
             tensorboard_writer=global_config.tensorboard_writer,
         )
 
+        batch_size = global_config.train_batch_size * global_config.seq_length
+        log_string += f" batch size (tokens): {(batch_size/1e6):.1f}M ({(batch_size*2048/torch.distributed.get_world_size()/1e6):.1f}M @ 2048 GPUs) |"
+        tb_wandb_log(
+            "data/global_batch_size_tokens",
+            batch_size,
+            iteration,
+            use_wandb=global_config.use_wandb,
+            tensorboard_writer=global_config.tensorboard_writer,
+        )
+
+        tokens_per_second_per_gpu = batch_size/torch.distributed.get_world_size()/iteration_time
+        log_string += f" tokens/s/gpu: {tokens_per_second_per_gpu:0.1f} |"
+        tb_wandb_log(
+            "data/tokens_per_second_per_gpu",
+            tokens_per_second_per_gpu,
+            iteration,
+            use_wandb=global_config.use_wandb,
+            tensorboard_writer=global_config.tensorboard_writer,
+        )
+
+        if global_config.train_data_token_index is not None:
+            log_string += f" token index into training data: {global_config.train_data_token_index} |"
+            tb_wandb_log(
+                "data/train_data_token_index",
+                global_config.train_data_token_index,
+                iteration,
+                use_wandb=global_config.use_wandb,
+                tensorboard_writer=global_config.tensorboard_writer,
+            )
+        # hw_model_flops_per_iteration -> model flops per iteration taking into account activation checkpointing
+        # TODO: change iteration time to sum of timers/forward + backward + optimizer?
+        tb_wandb_log(
+            "efficiency/model_flops_per_iteration",
+            global_config.model_flops_per_iteration,
+            iteration,
+            use_wandb=global_config.use_wandb,
+            tensorboard_writer=global_config.tensorboard_writer,
+        )
+        tb_wandb_log(
+            "efficiency/hw_model_flops_per_iteration",
+            global_config.hw_model_flops_per_iteration,
+            iteration,
+            use_wandb=global_config.use_wandb,
+            tensorboard_writer=global_config.tensorboard_writer,
+        )
+        
+        global_flops_throughput = global_config.hw_model_flops_per_iteration / iteration_time
+        device_flops_throughput = global_flops_throughput / torch.distributed.get_world_size()
+        log_string += f" global flops throughput (flops / s): {global_flops_throughput:0.2e} |"
+        tb_wandb_log(
+            "efficiency/global_flops_throughput",
+            global_flops_throughput,
+            iteration,
+            use_wandb=global_config.use_wandb,
+            tensorboard_writer=global_config.tensorboard_writer,
+        )
+        log_string += f" device flops throughput (flops / s): {device_flops_throughput:0.2e} |"
+        tb_wandb_log(
+            "efficiency/device_flops_throughput",
+            device_flops_throughput,
+            iteration,
+            use_wandb=global_config.use_wandb,
+            tensorboard_writer=global_config.tensorboard_writer,
+        )
+        # MFU = model_flops_throughput / theoretical_throughput where model_flops_throughput = (flops per fwd pass + flops_ per bwd pass) / iteration_time
+        # Should always be less than or equal to HFU, which takes into account activation checkpointing (and other actual computations)
+        model_flops_throughput = global_config.model_flops_per_iteration / (torch.distributed.get_world_size() * iteration_time)
+        if global_config.theoretical_device_throughput is not None:
+            theoretical_throughput = global_config.theoretical_device_throughput
+            mfu = model_flops_throughput / theoretical_throughput
+            log_string += f" MFU: {mfu * 100:0.2f}% |"
+            tb_wandb_log(
+                "efficiency/mfu",
+                mfu,
+                iteration,
+                use_wandb=global_config.use_wandb,
+                tensorboard_writer=global_config.tensorboard_writer,
+            )
+            hfu = device_flops_throughput / theoretical_throughput
+            log_string += f" HFU: {hfu * 100:0.2f}% |"
+            tb_wandb_log(
+                "efficiency/hfu",
+                hfu,
+                iteration,
+                use_wandb=global_config.use_wandb,
+                tensorboard_writer=global_config.tensorboard_writer,
+            )
         for key in total_loss_dict:
             if key not in [skipped_iters_key, got_nan_key]:
                 v = (
@@ -344,12 +447,8 @@ def training_log(
                 total_loss_dict[key] = 0.0
         if global_config.precision == "fp16":
             log_string += " loss scale: {:.1f} |".format(loss_scale)
-        log_string += " number of skipped iterations: {:3d} |".format(
-            total_loss_dict[skipped_iters_key]
-        )
-        log_string += " number of nan iterations: {:3d} |".format(
-            total_loss_dict[got_nan_key]
-        )
+        log_string += " number of skipped iterations: {:3d} |".format(total_loss_dict[skipped_iters_key])
+        log_string += " number of nan iterations: {:3d} |".format(total_loss_dict[got_nan_key])
         total_loss_dict[skipped_iters_key] = 0
         total_loss_dict[got_nan_key] = 0
         print_rank_0(log_string)
@@ -362,9 +461,7 @@ def training_log(
     return report_memory_flag
 
 
-def tb_wandb_log(
-    key, value, iteration_no, use_wandb, tensorboard_writer=None, all_ranks=False
-):
+def tb_wandb_log(key, value, iteration_no, use_wandb, tensorboard_writer=None, all_ranks=False):
     # logs to both tb and wandb (if present) from the zeroth rank
     do_log = torch.distributed.get_rank() == 0 or all_ranks
     if do_log and value is not None:

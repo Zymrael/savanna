@@ -8,7 +8,9 @@ import os
 import shutil
 import torch
 
+import deepspeed
 import pytest
+import subprocess
 from tests.common import (
     distributed_test,
     clear_test_dirs,
@@ -17,6 +19,94 @@ from tests.common import (
     parametrize,
 )
 import torch
+
+from savanna import initialize_megatron
+from savanna.mpu.initialize import initialize_model_parallel
+from savanna.arguments import GlobalConfig
+from savanna.training import setup_model_and_optimizer
+
+
+# Pretend like we are on a rank 0 host.
+os.environ['MASTER_ADDR'] = 'localhost'
+os.environ['MASTER_PORT'] = '6040'
+os.environ['LOCAL_RANK'] = '0'
+torch.distributed.init_process_group(backend='nccl', rank=0, world_size=1)
+initialize_model_parallel(1)
+deepspeed.comm.init_distributed(dist_backend='nccl', rank=0, world_size=1)
+
+
+def test_checkpoint_conversion():
+    from savanna.checkpointing import load_checkpoint
+    from savanna.checkpointing import save_checkpoint
+
+    args_loaded = GlobalConfig.from_ymls(
+        ['tests/test_configs/test_checkpoint1.yml'],
+    )
+    args_loaded.build_tokenizer()
+    initialize_megatron(global_config=args_loaded)
+    args_loaded.load = None
+    model, optimizer, lr_scheduler = setup_model_and_optimizer(
+        global_config=args_loaded, use_cache=True
+    )
+
+    # save model checkpoint
+    save_checkpoint(
+        global_config=args_loaded,
+        iteration=42,
+        model=model,
+        optimizer=optimizer,
+        lr_scheduler=lr_scheduler,
+    )
+
+    # Shard tensors.
+    command = """
+    python tools/convert_checkpoint_model_parallel.py \
+        --input-checkpoint-dir test_checkpoint/global_step42 \
+        --output-checkpoint-dir test_checkpoint_mp4/global_step42 \
+        --output-model-parallelism 4
+    """
+    subprocess.run(command, shell=True)
+
+    # Consolidate tensors.
+    command = """
+    python tools/convert_checkpoint_model_parallel.py \
+        --input-checkpoint-dir test_checkpoint_mp4/global_step42 \
+        --output-checkpoint-dir test_checkpoint_mp1/global_step42 \
+        --output-model-parallelism 1
+    """
+    subprocess.run(command, shell=True)
+
+    # reload model from converted checkpoint
+    (
+        reloaded_model,
+        reloaded_optimizer,
+        reloaded_lr_scheduler,
+        args_reloaded,
+    ) = model_setup(['tests/test_configs/test_checkpoint2.yml'], clear_data=False)
+
+    iteration = load_checkpoint(
+        global_config=args_reloaded,
+        model=reloaded_model,
+        optimizer=reloaded_optimizer,
+        lr_scheduler=reloaded_lr_scheduler,
+    )
+
+    # ensure same checkpoint is loaded
+    assert (
+        iteration == 42
+    ), "run_checkpoint_test() iteration loaded from checkpoint correct"
+
+    # check all weight groups are the same
+    for idx, ((n1, p1), (n2, p2)) in enumerate(
+        zip(
+            list(model.module.named_parameters()),
+            list(reloaded_model.module.named_parameters()),
+        )
+    ):
+        assert n1 == n2
+        params_equal = (p1 == p2).all().item()
+        assert params_equal, "run_checkpoint_test() params equal: " + str(n1)
+
 
 PARAMS_TO_TEST = {
     "pipe_parallel_size,model_parallel_size": [[0, 1], [1, 2], [0, 2], [2, 1]],
