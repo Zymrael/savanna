@@ -1,0 +1,145 @@
+
+{
+   "pipe-parallel-size": 1,
+   "model-parallel-size": 1,
+
+   ############### model settings
+   "num-layers": 28,
+   "hidden-size": 2048,
+   "operator-config": [[["hyena"], 28]],
+   "short-conv-L": 3, 
+   # reasonable values seem to be 2-3-4. Not too many parameters are here, however
+   
+   "prenorm": true, # always on 
+   
+   "postnorm": false,
+    # unclear if it should be on, should turn off when `identity_mlp` is True. 
+    # LLaMA needs both pre and post norms to be stable
+    # Hyena with gated MLP (LLaMA-style) appears to converge better without postnorm but is unstable,
+    # when adding postnorm the performance is worse than Hyena with regular MLP?
+
+ 
+
+   "hyena_filter_fast_decay": 0.9,
+   "hyena_filter_slow_decay": 1.5,
+   # percentage of sequence length at which the Hyena filters decay to approximately 0
+
+   "hyena_filter_w": 1, 
+   # we used to keep this higher, but found minimal difference. May want to run quick ablations with w=1, w=10
+
+   "hyena_filter_order": 1536,
+   # the larger, the better. Parameter cost is marginal
+
+   "use_fast_heads": false,
+   # always false
+
+   "use_slow_heads": true,
+   # our *best* multihead version. Does not increase parameters, makes model stronger (and lowers throughput)
+   # could benefit from a custom kernel.
+
+   "use-hyena-filter": true,
+   "seq-length": 8192,  
+   "norm": "rmsnorm", 
+   # Did not notice significant differences between layernorm and rmsnorm
+
+   "rms_norm_epsilon": 1.0e-6,
+   "output_layer_parallelism": "column",
+   "identity_mlp": false,
+  # use this to turn off post Hyena / Attention MLP
+
+  #  "no_weight_tying": true,
+  #  "gpt_j_residual": true,
+  "pos_emb": None,
+  "num_heads": 512,
+   # with heads active: number of heads. Select so that model width is 4 or 8 times larger, 
+   # since heads will perform outer products of dim `model_width / num_heads`. Any larger multiple 
+   # may result in significantly higher memory consumption
+  "num_attention_heads": 512, 
+  # keep this same as the above
+
+  "mlp_type": "regular",
+  # "mlp_type": "llama", improves performance but makes model unstable, suggesting we may need to tweak
+  # the layer for stability
+  #"activation": "softsign",
+
+   ############## misc optims
+   "scaled-upper-triang-masked-softmax-fusion": true,
+   "bias-gelu-fusion": true,
+
+   ############### init
+   "init_method": "small_init",
+   "output_layer_init_method": "wang_init",
+
+   ############## optimizer
+   "optimizer": {
+     "type": "Adam",
+     "params": {
+       "lr": 0.0002,
+       "betas": [0.9, 0.95],
+       "eps": 1.0e-8,
+     }
+   },
+   "min_lr": 0.00006,
+
+   ############### sys optims
+   "zero_optimization": {
+    "stage": 0,
+    "allgather_partitions": True,
+    "allgather_bucket_size": 500000000,
+    "overlap_comm": True,
+    "reduce_scatter": True,
+    "reduce_bucket_size": 500000000,
+    "contiguous_gradients": True,
+    "cpu_offload": false
+  },
+
+   ################# batch sizes
+   "train_micro_batch_size_per_gpu": 4,
+   "gradient_accumulation_steps": 1,
+   "data-impl": "mmap",
+   "num_workers": 1,
+
+   ################# act checkpointing
+   "checkpoint-activations": true,
+   "checkpoint-num-layers": 1,
+   "partition-activations": true,
+   "synchronize-each-layer": true,
+
+   ################# regularization
+   "gradient_clipping": 1.0,
+   "weight-decay": 0.1,
+   "hidden-dropout": 0.0,
+   "attention-dropout": 0.0,
+
+   ################ precision
+   "precision": "bfloat16",
+   "bf16": {
+   "enabled": true
+    },
+   
+   ################# training
+   "train-iters": 480000,
+   "lr-decay-iters": 480000,
+   "distributed-backend": "nccl",
+   "lr-decay-style": "cosine",
+   "warmup": 0.005,
+   "checkpoint-factor": 1000,
+   "eval-interval": 3000,
+   "eval-iters": 10,
+
+   ################ logging
+   "log-interval": 100,
+   "steps_per_print": 100,
+   "keep-last-n-checkpoints": 4,
+   "wall_clock_breakdown": True,
+   "save": "/var/cr06_data/mpoli/checkpoints/1.5b_hyena_rp",
+   "load": "/var/cr06_data/mpoli/checkpoints/1.5b_hyena_rp",
+   "iteration": 67000,
+  ################# networking
+  "hostfile": "./hostfile",
+  "launcher": "pdsh"
+}
+
+
+
+

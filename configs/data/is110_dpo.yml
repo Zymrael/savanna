@@ -1,0 +1,12 @@
+{
+  "train-data-paths": ["/large_experiments/hielab/brianhie/dna-gen/is110/is110_guidesearch_scores/dpo_data_is110_train_dpo_CharLevelTokenizer_document"],
+  "test-data-paths": ["/large_experiments/hielab/brianhie/dna-gen/is110/is110_guidesearch_scores/dpo_data_is110_test_dpo_CharLevelTokenizer_document"],
+  "valid-data-paths": ["/large_experiments/hielab/brianhie/dna-gen/is110/is110_guidesearch_scores/dpo_data_is110_valid_dpo_CharLevelTokenizer_document"],
+  "test-data-weights": [1.],
+  "valid-data-weights": [1.],
+  "checkpoint_validation_with_forward_pass": False,
+  "use_wandb": true,
+  "wandb_host": "https://api.wandb.ai",
+  "wandb_project": "dna-gen",
+}
+

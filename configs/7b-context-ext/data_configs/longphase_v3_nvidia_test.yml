@@ -1,0 +1,318 @@
+{
+  "train-data-paths": [
+    "/data/metagenomics/pretraining_data_metagenomics/data_metagenomics_train_text_CharLevelTokenizer_document",
+    "/data/long_gtdb_v220/imgpr_pretraining_data/data_imgpr_train_text_CharLevelTokenizer_document",
+    "/data/long_gtdb_v220/gtdbv220_longcontext_pretraining_data/data_gtdb_stitched_train_text_CharLevelTokenizer_document",
+    "/data/imgvr_tagged/imgvr_tag_data/data_imgvr_train_text_CharLevelTokenizer_document",
+    "/data/ncrna/pretraining_data_ncrna/data_ncrna_train_text_CharLevelTokenizer_document",
+    "/data/promoters/pretraining_data_promoters/data_promoters_train_text_CharLevelTokenizer_document",
+    "/data/organelle/pretraining_data_organelle/data_organelle_train_text_CharLevelTokenizer_document",
+    "/data/mrna/pretraining_data_mrna/data_mrna_train_text_CharLevelTokenizer_document",
+    "/data/euk_windows/stitched_transcripts/pretraining_data_stiched_mrna/data_mrna_stitch_train_text_CharLevelTokenizer_document",
+    "/data/euk_windows/windows_split/5kb_windows_lowercase/5kb_windows_lowercase_pretraining_data/windows_5kb_train_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_train_batch1_animalia_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_train_batch2_animalia_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_train_batch3_animalia_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_train_batch4_animalia_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_train_batch5_animalia_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_train_batch6_animalia_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_train_batch7_animalia_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_train_batch8_animalia_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_train_batch1_plantae_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_train_batch2_plantae_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_train_batch3_plantae_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_train_batch4_plantae_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_train_batch5_plantae_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_train_batch6_plantae_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_train_batch7_plantae_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_train_batch8_plantae_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_train_batch1_fungi_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_train_batch2_fungi_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_train_batch3_fungi_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_train_batch4_fungi_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_train_batch5_fungi_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_train_batch6_fungi_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_train_batch7_fungi_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_train_batch8_fungi_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_train_batch1_protista_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_train_batch2_protista_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_train_batch3_protista_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_train_batch4_protista_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_train_batch5_protista_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_train_batch6_protista_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_train_batch7_protista_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_train_batch8_protista_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_train_batch1_chromista_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_train_batch2_chromista_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_train_batch3_chromista_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_train_batch4_chromista_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_train_batch5_chromista_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_train_batch6_chromista_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_train_batch7_chromista_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_train_batch8_chromista_text_CharLevelTokenizer_document",
+    ],
+  "valid-data-paths": [
+    "/data/metagenomics/pretraining_data_metagenomics/data_metagenomics_valid_text_CharLevelTokenizer_document",
+    "/data/long_gtdb_v220/imgpr_pretraining_data/data_imgpr_valid_text_CharLevelTokenizer_document",
+    "/data/long_gtdb_v220/gtdbv220_longcontext_pretraining_data/data_gtdb_stitched_valid_text_CharLevelTokenizer_document",
+    "/data/imgvr_tagged/imgvr_tag_data/data_imgvr_valid_text_CharLevelTokenizer_document",
+    "/data/ncrna/pretraining_data_ncrna/data_ncrna_valid_text_CharLevelTokenizer_document",
+    "/data/promoters/pretraining_data_promoters/data_promoters_train_text_CharLevelTokenizer_document", # Note that change from valid to train
+    "/data/organelle/pretraining_data_organelle/data_organelle_valid_text_CharLevelTokenizer_document",
+    "/data/mrna/pretraining_data_mrna/data_mrna_valid_text_CharLevelTokenizer_document",
+    "/data/euk_windows/stitched_transcripts/pretraining_data_stiched_mrna/data_mrna_stitch_valid_text_CharLevelTokenizer_document",
+    "/data/euk_windows/windows_split/5kb_windows_lowercase/5kb_windows_lowercase_pretraining_data/windows_5kb_valid_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_valid_batch1_animalia_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_valid_batch2_animalia_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_valid_batch3_animalia_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_valid_batch4_animalia_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_valid_batch5_animalia_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_valid_batch6_animalia_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_valid_batch7_animalia_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_valid_batch8_animalia_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_valid_batch1_plantae_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_valid_batch2_plantae_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_valid_batch3_plantae_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_valid_batch4_plantae_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_valid_batch5_plantae_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_valid_batch6_plantae_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_valid_batch7_plantae_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_valid_batch8_plantae_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_valid_batch1_fungi_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_valid_batch2_fungi_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_valid_batch3_fungi_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_valid_batch4_fungi_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_valid_batch5_fungi_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_valid_batch6_fungi_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_valid_batch7_fungi_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_valid_batch8_fungi_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_valid_batch1_protista_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_valid_batch2_protista_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_valid_batch3_protista_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_valid_batch4_protista_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_valid_batch5_protista_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_valid_batch6_protista_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_valid_batch7_protista_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_valid_batch8_protista_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_valid_batch1_chromista_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_valid_batch2_chromista_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_valid_batch3_chromista_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_valid_batch4_chromista_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_valid_batch5_chromista_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_valid_batch6_chromista_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_valid_batch7_chromista_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_valid_batch8_chromista_text_CharLevelTokenizer_document",
+    ],
+  "test-data-paths": [
+    "/data/metagenomics/pretraining_data_metagenomics/data_metagenomics_test_text_CharLevelTokenizer_document", #1
+    "/data/long_gtdb_v220/imgpr_pretraining_data/data_imgpr_test_text_CharLevelTokenizer_document", #2
+    "/data/long_gtdb_v220/gtdbv220_longcontext_pretraining_data/data_gtdb_stitched_test_text_CharLevelTokenizer_document", #3
+    "/data/imgvr_tagged/imgvr_tag_data/data_imgvr_test_text_CharLevelTokenizer_document", #4
+    "/data/ncrna/pretraining_data_ncrna/data_ncrna_test_text_CharLevelTokenizer_document", #5
+    "/data/promoters/pretraining_data_promoters/data_promoters_test_text_CharLevelTokenizer_document", #6
+    "/data/organelle/pretraining_data_organelle/data_organelle_test_text_CharLevelTokenizer_document", #7
+    "/data/mrna/pretraining_data_mrna/data_mrna_test_text_CharLevelTokenizer_document", #8
+    "/data/euk_windows/stitched_transcripts/pretraining_data_stiched_mrna/data_mrna_stitch_test_text_CharLevelTokenizer_document", #9
+    "/data/euk_windows/windows_split/5kb_windows_lowercase/5kb_windows_lowercase_pretraining_data/windows_5kb_test_text_CharLevelTokenizer_document", #10
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_test_batch1_animalia_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_test_batch2_animalia_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_test_batch3_animalia_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_test_batch4_animalia_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_test_batch5_animalia_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_test_batch6_animalia_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_test_batch7_animalia_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_test_batch8_animalia_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_test_batch1_plantae_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_test_batch2_plantae_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_test_batch3_plantae_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_test_batch4_plantae_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_test_batch5_plantae_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_test_batch6_plantae_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_test_batch7_plantae_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_test_batch8_plantae_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_test_batch1_fungi_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_test_batch2_fungi_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_test_batch3_fungi_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_test_batch4_fungi_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_test_batch5_fungi_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_test_batch6_fungi_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_test_batch7_fungi_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_test_batch8_fungi_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_test_batch1_protista_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_test_batch2_protista_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_test_batch3_protista_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_test_batch4_protista_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_test_batch5_protista_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_test_batch6_protista_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_test_batch7_protista_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_test_batch8_protista_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_test_batch1_chromista_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_test_batch2_chromista_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_test_batch3_chromista_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_test_batch4_chromista_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_test_batch5_chromista_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_test_batch6_chromista_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_test_batch7_chromista_text_CharLevelTokenizer_document",
+    # "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_test_batch8_chromista_text_CharLevelTokenizer_document",
+    ],
+"train-data-weights": [
+  0.05,        # index 0
+  0.005,       # index 1
+  0.235,       # index 2
+  0.02,        # index 3
+  0.01,        # index 4
+  0.0001,      # index 5
+  0.0025,      # index 6
+  0.045,       # index 7
+  0.045,       # index 8
+  0.05,        # index 9
+  # 0.045,       # index 10
+  # 0.045,       # index 11
+  # 0.045,       # index 12
+  # 0.045,       # index 13
+  # 0.045,       # index 14
+  # 0.045,       # index 15
+  # 0.045,       # index 16
+  # 0.045,       # index 17
+  # 0.015,       # index 18
+  # 0.015,       # index 19
+  # 0.015,       # index 20
+  # 0.015,       # index 21
+  # 0.015,       # index 22
+  # 0.015,       # index 23
+  # 0.015,       # index 24
+  # 0.015,       # index 25
+  # 0.005,       # index 26
+  # 0.005,       # index 27
+  # 0.005,       # index 28
+  # 0.005,       # index 29
+  # 0.005,       # index 30
+  # 0.005,       # index 31
+  # 0.005,       # index 32
+  # 0.005,       # index 33
+  # 0.001,       # index 34
+  # 0.001,       # index 35
+  # 0.001,       # index 36
+  # 0.001,       # index 37
+  # 0.001,       # index 38
+  # 0.001,       # index 39
+  # 0.001,       # index 40
+  # 0.001,       # index 41
+  # 0.001,       # index 42
+  # 0.001,       # index 43
+  # 0.001,       # index 44
+  # 0.001,       # index 45
+  # 0.001,       # index 46
+  # 0.001,       # index 47
+  # 0.001,       # index 48
+  # 0.001        # index 49
+],
+
+"test-data-weights": [
+  0.05,        # index 0
+  0.005,       # index 1
+  0.235,       # index 2
+  0.02,        # index 3
+  0.01,        # index 4
+  0.0001,      # index 5
+  0.0025,      # index 6
+  0.045,       # index 7
+  0.045,       # index 8
+  0.05,        # index 9
+  # 0.045,       # index 10
+  # 0.045,       # index 11
+  # 0.045,       # index 12
+  # 0.045,       # index 13
+  # 0.045,       # index 14
+  # 0.045,       # index 15
+  # 0.045,       # index 16
+  # 0.045,       # index 17
+  # 0.015,       # index 18
+  # 0.015,       # index 19
+  # 0.015,       # index 20
+  # 0.015,       # index 21
+  # 0.015,       # index 22
+  # 0.015,       # index 23
+  # 0.015,       # index 24
+  # 0.015,       # index 25
+  # 0.005,       # index 26
+  # 0.005,       # index 27
+  # 0.005,       # index 28
+  # 0.005,       # index 29
+  # 0.005,       # index 30
+  # 0.005,       # index 31
+  # 0.005,       # index 32
+  # 0.005,       # index 33
+  # 0.001,       # index 34
+  # 0.001,       # index 35
+  # 0.001,       # index 36
+  # 0.001,       # index 37
+  # 0.001,       # index 38
+  # 0.001,       # index 39
+  # 0.001,       # index 40
+  # 0.001,       # index 41
+  # 0.001,       # index 42
+  # 0.001,       # index 43
+  # 0.001,       # index 44
+  # 0.001,       # index 45
+  # 0.001,       # index 46
+  # 0.001,       # index 47
+  # 0.001,       # index 48
+  # 0.001        # index 49
+],
+
+"valid-data-weights": [
+  0.05,        # index 0
+  0.005,       # index 1
+  0.235,       # index 2
+  0.02,        # index 3
+  0.01,        # index 4
+  0.0001,      # index 5
+  0.0025,      # index 6
+  0.045,       # index 7
+  0.045,       # index 8
+  0.05,        # index 9
+  # 0.045,       # index 10
+  # 0.045,       # index 11
+  # 0.045,       # index 12
+  # 0.045,       # index 13
+  # 0.045,       # index 14
+  # 0.045,       # index 15
+  # 0.045,       # index 16
+  # 0.045,       # index 17
+  # 0.015,       # index 18
+  # 0.015,       # index 19
+  # 0.015,       # index 20
+  # 0.015,       # index 21
+  # 0.015,       # index 22
+  # 0.015,       # index 23
+  # 0.015,       # index 24
+  # 0.015,       # index 25
+  # 0.005,       # index 26
+  # 0.005,       # index 27
+  # 0.005,       # index 28
+  # 0.005,       # index 29
+  # 0.005,       # index 30
+  # 0.005,       # index 31
+  # 0.005,       # index 32
+  # 0.005,       # index 33
+  # 0.001,       # index 34
+  # 0.001,       # index 35
+  # 0.001,       # index 36
+  # 0.001,       # index 37
+  # 0.001,       # index 38
+  # 0.001,       # index 39
+  # 0.001,       # index 40
+  # 0.001,       # index 41
+  # 0.001,       # index 42
+  # 0.001,       # index 43
+  # 0.001,       # index 44
+  # 0.001,       # index 45
+  # 0.001,       # index 46
+  # 0.001,       # index 47
+  # 0.001,       # index 48
+  # 0.001        # index 49
+],
+
+  "checkpoint_validation_with_forward_pass": False,
+}

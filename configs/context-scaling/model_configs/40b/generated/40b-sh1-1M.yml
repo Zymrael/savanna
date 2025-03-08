@@ -1,0 +1,214 @@
+# Assumes checkpoint has been fixed to used interleaved projections
+explicit_filter_num_decay_repeats: 1
+
+# @jeromeku: Needed for MP16, set pad to true if starting from padded checkpoint
+use_fp8_mlp_projections: true
+pad_mlp_weights: true
+
+# CP Config
+use_cp_flash_te: true
+te_attn_backend: 'FLASH'
+use_cp_ring: false
+use_cp_hyena: true
+
+# Checkpointing
+# @jeromeku: Corresponds 128K extension checkpoint at global_step12500
+seq_length: 1048576
+pos_emb: 'rotary_linear_scaled'
+rotary_emb_base: 100000000000
+rotary_emb_scaling_factor: 128
+rotary_pct: 1
+max_position_embeddings: 8192
+
+# Training
+train-iters: 100
+lr-decay-iters: 100
+
+# Per ds evals
+# num_workers: 1 # need to set this to 1 for world_size >= 32, else CPU OOM during dataloading
+# do_per_ds_valid: true
+# eval_per_ds_interval: 500
+# eval_per_ds_iters: 1
+
+eval-interval: 500
+eval-iters: 0
+
+# Optimizer and LR Scheduler
+optimizer:
+  type: 'Adam'
+  params:
+    lr: 0.00003
+    betas: [0.9, 0.95]
+    eps: 1.0e-8
+min_lr: 0.000003
+warmup: 0.05
+lr-decay-style: cosine
+
+# Loss
+to_upper: normalized_weighted
+mask_loss_control_tags: true
+lowercase_loss_reweighting: 0.1
+
+# Checkpointing
+checkpoint-factor: 100
+save_retain_interval: 12500
+keep-last-n-checkpoints: 5
+
+# IMPORTANT: needed to stabilize training at 1k+ gpus
+disable_gc: true
+gc_collect_generation: 2
+prealloc_mem: false
+
+# Logging
+use_wandb: true
+print_mem_alloc_stats: false
+log_memory_stats: true
+log_memory_alloc_counts: false
+
+# MP / PP config
+pipe_parallel_size: 0
+model_parallel_size: 64
+context_parallel_size: 2
+sequence_parallel: true
+
+zero_optimization: {stage: 3, prefetch_bucket_size: 500000000, max_live_parameters: 1000000000,
+  allgather_partitions: true, allgather_bucket_size: 500000000, overlap_comm: true,
+  reduce_scatter: true, reduce_bucket_size: 500000000, contiguous_gradients: true,
+  cpu_offload: false, param_persistence_threshold: 0, sub_group_size: 1000000000000}
+train_micro_batch_size_per_gpu: 1
+gradient_accumulation_steps: 1
+
+# Activation checkpointing - @jeromeku after fp8 / sequence-parallel fix, needed to lower memory pressure / prevent memory thrashing
+checkpoint-activations: true
+checkpoint-num-layers: 1
+
+# Checkpointing
+zero_use_leaf_modules: false
+zero_leaf_modules: [ParallelSequenceMixer, ParallelGLU]
+
+zero_use_mics: false
+make_vocab_size_divisible_by: 8
+num_layers: 50
+hidden_size: 8192
+num_attention_heads: 64
+num_groups_hyena: 8192
+num_groups_hyena_medium: 512
+num_groups_hyena_short: 512
+num_groups_hyena_mlp: 512
+operator-config:
+  - [['hyena'], 1]             # Layer 1
+  - [['hyena'], 1]             # Layer 2
+  - [['hyena'], 1]            # Layer 3
+  - [['flash_te'], 1]          # Layer 4
+  - [['hyena'], 1]             # Layer 5
+  - [['hyena'], 1]             # Layer 6
+  - [['hyena'], 1]            # Layer 7
+  - [['hyena'], 1]             # Layer 8
+  - [['hyena'], 1]             # Layer 9
+  - [['hyena'], 1]            # Layer 10
+  - [['flash_te'], 1]          # Layer 11
+  - [['hyena'], 1]             # Layer 12
+  - [['hyena'], 1]             # Layer 13
+  - [['hyena'], 1]            # Layer 14
+  - [['hyena'], 1]             # Layer 15
+  - [['hyena'], 1]             # Layer 16
+  - [['hyena'], 1]            # Layer 17
+  - [['flash_te'], 1]          # Layer 18
+  - [['hyena'], 1]             # Layer 19
+  - [['hyena'], 1]             # Layer 20
+  - [['hyena'], 1]            # Layer 21
+  - [['hyena'], 1]             # Layer 22
+  - [['hyena'], 1]             # Layer 23
+  - [['hyena'], 1]            # Layer 24
+  - [['flash_te'], 1]          # Layer 25
+  - [['hyena'], 1]             # Layer 26
+  - [['hyena'], 1]             # Layer 27
+  - [['hyena'], 1]            # Layer 28
+  - [['hyena'], 1]             # Layer 29
+  - [['hyena'], 1]             # Layer 30
+  - [['hyena'], 1]            # Layer 31
+  - [['flash_te'], 1]          # Layer 32
+  - [['hyena'], 1]             # Layer 33
+  - [['hyena'], 1]             # Layer 34
+  - [['hyena'], 1]            # Layer 35
+  - [['flash_te'], 1]          # Layer 36  
+  - [['hyena'], 1]             # Layer 37
+  - [['hyena'], 1]             # Layer 38
+  - [['hyena'], 1]            # Layer 39
+  - [['hyena'], 1]             # Layer 40
+  - [['hyena'], 1]             # Layer 41
+  - [['hyena'], 1]            # Layer 42
+  - [['flash_te'], 1]          # Layer 43
+  - [['hyena'], 1]             # Layer 44
+  - [['hyena'], 1]             # Layer 45
+  - [['hyena'], 1]            # Layer 46
+  - [['hyena'], 1]             # Layer 47
+  - [['hyena'], 1]             # Layer 48
+  - [['hyena'], 1]            # Layer 49
+  - [['flash_te'], 1]          # Layer 50
+
+# These kernels are not used
+use_cgcg: false
+use_cgcg_short: false
+use_cgcg_mlp: false
+
+hyena_mr_len: 128  # default is null
+log_attn_norms: false
+prenorm: true
+postnorm: false
+pre_mlp_norm: true
+outer_mlp_norm: false
+no_weight_tying: false
+gpt_j_residual: false
+normalize_hyena_filters: false
+short-conv-L: 3
+hyena_filter_fast_decay: 0.3
+hyena_filter_slow_decay: 1.2
+hyena_filter_w: 14
+hyena_filter_cls: implicit_modal
+hyena_medium_filter_cls: explicit_single_decay
+explicit_filter_decay_preset: weak
+hyena_filter_order: 16
+hyena_filter_wd: 0.0
+use_fast_heads: false
+use_slow_heads: false
+use-hyena-filter: true
+output_layer_parallelism: column
+bias_dropout_fusion: false
+norm: rmsnorm
+rms_norm_epsilon: 1.0e-6
+identity_mlp: false
+activation: gelu
+mlp_type: llama
+scaled-upper-triang-masked-softmax-fusion: true
+bias-gelu-fusion: false
+init_method: small_init
+output_layer_init_method: wang_init
+
+data-impl: mmap
+
+partition-activations: false
+synchronize-each-layer: false
+gradient_clipping: 1.0
+weight-decay: 0.1
+hidden-dropout: 0.0
+attention-dropout: 0.0
+precision: bfloat16
+bf16:
+  enabled: true
+distributed-backend: nccl
+
+
+log-interval: 5
+steps_per_print: 5
+wall_clock_breakdown: false
+
+tokenizer_type: CharLevelTokenizer # Assuming this is a valid identifier
+use_fp8_input_projections: true
+use_fp8_output_projections: true
+use_fp8_norm: true
+checkpoint_strict_load: false
+make_gated_mlp_multiple_of: 128
+materialize_attn_mask: false  # default false, to save memory
+fast_conv_proj: true
+hyena_se_len: 7

@@ -1,0 +1,100 @@
+{
+   "pipe-parallel-size": 1,
+   "model-parallel-size": 1,
+
+   ############### model settings
+   "num-layers": 28,
+   "hidden-size": 2048,
+   "operator-config": [[["hyena"], 28]],
+   "short-conv-L": 3,
+   "postnorm": true,
+   "use-hyena-filter": true,
+   "use_fast_heads": false,
+   "seq-length": 8096,
+   "norm": "layernorm",
+   "output_layer_parallelism": "column",
+   "identity_mlp": false,
+   "prenorm": true,
+  #  "no_weight_tying": true,
+  #  "gpt_j_residual": true,
+   "pos_emb": None,
+   "num_heads": 512, # hidden-size / num_heads unique filters
+   "num_attention_heads": 512, # nb: this is only used for mpu with vanilla Hyena, no heads to split
+
+   ############## misc optims
+   "scaled-upper-triang-masked-softmax-fusion": true,
+   "bias-gelu-fusion": true,
+
+   ############### init
+   "init_method": "small_init",
+   "output_layer_init_method": "small_init",
+
+   ############## optimizer
+   "optimizer": {
+     "type": "Adam",
+     "params": {
+       "lr": 0.0002,
+       "betas": [0.9, 0.95],
+       "eps": 1.0e-8,
+     }
+   },
+   "min_lr": 0.00006,
+
+   ############### sys optims
+   "zero_optimization": {
+    "stage": 0,
+    "allgather_partitions": True,
+    "allgather_bucket_size": 500000000,
+    "overlap_comm": True,
+    "reduce_scatter": True,
+    "reduce_bucket_size": 500000000,
+    "contiguous_gradients": True,
+    "cpu_offload": false
+  },
+
+   ################# batch sizes
+   "train_micro_batch_size_per_gpu": 2,
+   "gradient_accumulation_steps": 1,
+   "data-impl": "mmap",
+   "num_workers": 1,
+
+   ################# act checkpointing
+   "checkpoint-activations": true,
+   "checkpoint-num-layers": 1,
+   "partition-activations": true,
+   "synchronize-each-layer": true,
+
+   ################# regularization
+   "gradient_clipping": 1.0,
+   "weight-decay": 0.1,
+   "hidden-dropout": 0.0,
+   "attention-dropout": 0.0,
+
+   ################ precision
+   "precision": "bfloat16",
+   "bf16": {
+   "enabled": true
+    },
+   
+   ################# training
+   "train-iters": 71500,
+   "lr-decay-iters": 71500,
+   "distributed-backend": "nccl",
+   "lr-decay-style": "cosine",
+   "warmup": 0.01,
+   "checkpoint-factor": 10000,
+   "eval-interval": 3000,
+   "eval-iters": 10,
+
+   ################ logging
+   "log-interval": 500,
+   "steps_per_print": 500,
+   "keep-last-n-checkpoints": 4,
+   "wall_clock_breakdown": True,
+
+   ####
+  "vocab-file": "/var/cr01_data/mpoli_data/mpoli_data/gpt2-vocab.json",
+  "merge-file": "/var/cr01_data/mpoli_data/mpoli_data/gpt2-merges.txt",
+  "load": "/var/cr01_data/mpoli/code/safari-neox/checkpoints/hyena1.5b_4m/"
+}
+

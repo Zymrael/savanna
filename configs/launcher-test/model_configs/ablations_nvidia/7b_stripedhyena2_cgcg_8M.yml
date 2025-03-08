@@ -1,0 +1,219 @@
+{
+
+
+  'pipe_parallel_size': 0,
+  'model_parallel_size': 1,
+  'make_vocab_size_divisible_by': 8,
+  
+  # Diff w.r.t base: turn on cgcg kernels
+# cgcg config
+  "use_cgcg": false,
+  "use_cgcg_short": true,
+  "use_cgcg_mlp": true,
+
+  "cgcg_dtype": "bfloat16",
+
+  #NOTE: jeromeku - should change the config based on batch size num_stages from 1 -> 4
+  
+  # Tuning results on NVIDIA CLUSTER
+  # 7b model: seqlen 8192 d 4096 g 256
+
+  # bs 2 filter size 128
+  # Best speedup_fwdbwd speedup: 1.37x with fwd kernel config: {'CHUNK_SIZE': 128, 'BLOCK_D': 16, 'THREADBLOCK_SWIZZLE': 'row', 'schedule': 'default', 
+  # 'NUM_PIPELINE_STAGES': 0, 'CHUNK_TILES_PER_PROGRAM': 1, 'num_warps': 4, 'num_stages': 3, 'num_ctas': 1, }
+  
+  # Tuning results for bs 8 filter size 128
+  #Best speedup_fwdbwd speedup: 1.38x with fwd kernel config: {'CHUNK_SIZE': 128, 'BLOCK_D': 16, 'THREADBLOCK_SWIZZLE': 'row', 'schedule': 'default',
+  # 'NUM_PIPELINE_STAGES': 0, 'CHUNK_TILES_PER_PROGRAM': 3, 'num_warps': 4, 'num_stages': 5, 'num_ctas': 1,}
+  
+  # cgcg fwd kernel config
+  "cgcg_fwd_autotune": false, # @jeromeku, NOTE: hardcoded to false within hyena.py
+
+  # Hyena medium
+  "hyena_mr_len": 128,  # default is null
+  "cgcg_medium_fwd_kernel_config_chunk_size": 128,
+  "cgcg_medium_fwd_kernel_config_block_d": 128, # Should be set to 16 automatically in kernel launcher
+  "cgcg_medium_fwd_kernel_config_threadblock_swizzle": "row",
+  "cgcg_medium_fwd_kernel_config_chunk_tiles_per_program": 1,
+  "cgcg_medium_fwd_kernel_config_num_stages": 3,
+  "cgcg_short_fwd_kernel_config_num_warps": 4,
+  
+  # bs 2 filter_size 7 
+  # Best speedup_fwdbwd speedup: 2.38x with 
+  # fwd kernel config: 
+  #{'CHUNK_SIZE': 128, 'BLOCK_D': 16, 'THREADBLOCK_SWIZZLE': 'row', 'schedule': 'default', 
+  # 'NUM_PIPELINE_STAGES': 0, #'CHUNK_TILES_PER_PROGRAM': 1, 'num_warps': 4, 'num_stages': 1, 'num_ctas': 1, 
+
+  # bs 8 filter_size 7
+  # Best speedup_fwdbwd speedup: 2.41x with fwd kernel config: {'CHUNK_SIZE': 128, 'BLOCK_D': 16, 'THREADBLOCK_SWIZZLE': 'row',
+  # 'NUM_PIPELINE_STAGES': 0, 'CHUNK_TILES_PER_PROGRAM': 1, 'num_warps': 4, 'num_stages': 4, 'num_ctas': 1, 
+  "hyena_se_len": 7,  
+  "cgcg_short_fwd_kernel_config_chunk_size": 128,
+  "cgcg_short_fwd_kernel_config_block_d": 128, # Should be set to 16 automatically in kernel launcher
+  "cgcg_short_fwd_kernel_config_threadblock_swizzle": "row",
+  "cgcg_short_fwd_kernel_config_chunk_tiles_per_program": 1,
+  "cgcg_short_fwd_kernel_config_num_warps": 4,
+  "cgcg_short_fwd_kernel_config_num_stages": 1,
+  
+  # cgcg bwd kernel config
+  "cgcg_bwd_autotune": true,
+  "cgcg_fused_bwd": true,
+
+  # Only needed if not autotuning
+
+  # bs 2 filter size 7:  {'BLOCK_X': 128, 'BLOCK_Y': 128, 'num_warps': 8, 'num_ctas': 1, 'num_stages': 2}",
+  #                      "{'BLOCK_X': 32, 'BLOCK_Y': 128, 'num_warps': 4, 'num_ctas': 1, 'num_stages': 2}
+  #bs 2 filter size 128: {'BLOCK_X': 128, 'BLOCK_Y': 128, 'num_warps': 8, 'num_ctas': 1, 'num_stages': 2}",
+  #                      "{'BLOCK_X': 32, 'BLOCK_Y': 128, 'num_warps': 4, 'num_ctas': 1, 'num_stages': 2}"
+  "cgcg_bwd_kernel_config_pre_conv_block_x": 128,
+  "cgcg_bwd_kernel_config_pre_conv_block_y": 128,
+  "cgcg_bwd_kernel_config_pre_conv_num_warps": 8,
+  "cgcg_bwd_kernel_config_post_conv_block_x": 32,
+  "cgcg_bwd_kernel_config_post_conv_block_y": 128,
+  "cgcg_bwd_kernel_config_post_conv_num_warps": 4,
+
+  'num_layers': 32,
+  'hidden_size': 4096,
+  'num_groups_hyena': 4096,
+  'num_groups_hyena_medium': 256,
+  'num_groups_hyena_short': 256,
+  'num_groups_hyena_mlp': 256,
+  'num_attention_heads': 32,
+  'operator-config':
+    [
+      [['hyena_se'], 1],
+      [['hyena_mr'], 1],
+      [['hyena'], 1],
+      [['flash_v2'], 1],
+      [['hyena_se'], 1],
+      [['hyena_mr'], 1],
+      [['hyena'], 1],
+      [['hyena_se'], 1],
+      [['hyena_mr'], 1],
+      [['hyena'], 1],
+      [['flash_v2'], 1],
+      [['hyena_se'], 1],
+      [['hyena_mr'], 1],
+      [['hyena'], 1],
+      [['hyena_se'], 1],
+      [['hyena_mr'], 1],
+      [['hyena'], 1],
+      [['flash_v2'], 1],
+      [['hyena_se'], 1],
+      [['hyena_mr'], 1],
+      [['hyena'], 1],
+      [['hyena_se'], 1],
+      [['hyena_mr'], 1],
+      [['hyena'], 1],
+      [['flash_v2'], 1],
+      [['hyena_se'], 1],
+      [['hyena_mr'], 1],
+      [['hyena'], 1],
+      [['hyena_se'], 1],
+      [['hyena_mr'], 1],
+      [['hyena'], 1],
+      [['flash_v2'], 1],
+    ],
+  'seq_length': 8192,
+  'max_position_embeddings': 8192,
+  'hyena_mr_len': 128, # default is null
+  'log_attn_norms': false,
+  'pos_emb': 'rotary',
+  # "rotary_emb_base": 1000000,
+  'rotary_pct': 1,
+  'prenorm': true,
+  'postnorm': false,
+  'pre_mlp_norm': true,
+  'outer_mlp_norm': false,
+  'no_weight_tying': false,
+  'gpt_j_residual': false,
+  'normalize_hyena_filters': false,
+  'short-conv-L': 3,
+  'hyena_filter_fast_decay': 0.3,
+  'hyena_filter_slow_decay': 1.2,
+  'hyena_filter_w': 14,
+  'hyena_filter_cls': 'implicit_modal',
+  'hyena_medium_filter_cls': 'explicit_single_decay',
+  'explicit_filter_decay_preset': 'weak',
+  # "modal_residue_factors": 5,
+  # "modal_pole_factors": 1,
+  'hyena_filter_order': 16,
+  'hyena_filter_wd': 0.,
+  'use_fast_heads': false,
+  'use_slow_heads': false,
+  'use-hyena-filter': true,
+  'output_layer_parallelism': 'column',
+  'bias_dropout_fusion': false,
+  'norm': 'rmsnorm',
+  'rms_norm_epsilon': 1.0e-6,
+  'identity_mlp': false,
+  'mlp_type': 'llama',
+  'scaled-upper-triang-masked-softmax-fusion': true,
+  'bias-gelu-fusion': false,
+  'init_method': 'small_init',
+  'output_layer_init_method': 'wang_init',
+  'optimizer':
+    {
+      'type': 'Adam',
+      'params': { 'lr': 0.00042, 'betas': [0.9, 0.95], 'eps': 1.0e-8 },
+    },
+  'min_lr': 0.000042,
+  'zero_optimization':
+    {
+      'stage': 1,
+      'allgather_partitions': True,
+      'allgather_bucket_size': 500000000,
+      'overlap_comm': True,
+      'reduce_scatter': True,
+      'reduce_bucket_size': 500000000,
+      'contiguous_gradients': True,
+      'cpu_offload': false,
+    },
+  'train_micro_batch_size_per_gpu': 2,
+  'gradient_accumulation_steps': 2,
+  'data-impl': 'mmap',
+  'checkpoint-activations': true,
+  'checkpoint-num-layers': 4,
+  'partition-activations': true,
+  'synchronize-each-layer': false,
+  'gradient_clipping': 1.0,
+  'weight-decay': 0.1,
+  'hidden-dropout': 0.0,
+  'attention-dropout': 0.0,
+  'precision': 'bfloat16',
+  'bf16': { 'enabled': true },
+  'train-iters': 250000,
+  'lr-decay-iters': 250000,
+  'distributed-backend': 'nccl',
+  'lr-decay-style': 'cosine',
+  'warmup': 0.005,
+  'checkpoint-factor': 10000,
+  #"extra_save_iters": [20000, 40000, 60000, 80000, 100000, 120000, 140000, 160000, 180000, 200000, 220000, 240000],
+  'eval-interval': 200,
+  'eval-iters': 20,
+  'log-interval': 5,
+  'steps_per_print': 5,
+  'keep-last-n-checkpoints': 2,
+  'wall_clock_breakdown': false,
+  # "save": "/home/zymrael/checkpoints/evo2/evo2_test", # change this
+  'tokenizer_type': CharLevelTokenizer,
+  #  "iteration": 200,
+  #  "use_checkpoint_lr_scheduler": True,
+  'use_fp8_input_projections': true,
+  'use_fp8_output_projections': true,
+  'use_fp8_mlp_projections': true,
+  'use_fp8_norm': true,
+  'checkpoint_strict_load': false,
+  'master_port': 29502,
+  #  "include": "localhost@localhost:0",
+  #  "num_gpus": 1,
+  #  "bidirectional": True,
+  'make_gated_mlp_multiple_of': 128,
+  'materialize_attn_mask': false, # default false, to save memory
+  'fast_conv_proj': true,
+  'hyena_se_len': 7,
+  'to_upper': 'normalized_weighted',
+  'mask_loss_control_tags': True,
+  'lowercase_loss_reweighting': 0.1,
+  'hyena_mlp_len': 7,
+}

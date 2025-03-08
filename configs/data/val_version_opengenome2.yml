@@ -1,0 +1,62 @@
+{
+  "train-data-paths": [
+    "/datasets/evo2/metagenomics/pretraining_data_metagenomics/data_metagenomics_train_text_CharLevelTokenizer_document",
+    "/datasets/evo2/gtdb_imgpr/pretraining_data_gtdb_imgpr/data_gtdb_imgpr_train_text_CharLevelTokenizer_document",
+    "/datasets/evo2/imgvr/pretraining_data_imgvr/data_imgvr_train_text_CharLevelTokenizer_document",
+    "/datasets/evo2/hg38/pretraining_data_hg38/data_hg38_all_text_CharLevelTokenizer_document",
+    "/datasets/evo2/ncrna/pretraining_data_ncrna/data_ncrna_train_text_CharLevelTokenizer_document",
+    "/datasets/evo2/mrna_splice/pretraining_data_mrna_splice/data_mrna_splice_train_text_CharLevelTokenizer_document",
+    "/datasets/evo2/promoters/pretraining_data_promoters/data_promoters_train_text_CharLevelTokenizer_document",
+    "/datasets/evo2/eukaryote_ncbi/pretraining_data/data_train_batch1_animalia_text_CharLevelTokenizer_document",
+    "/datasets/evo2/eukaryote_ncbi/pretraining_data/data_train_batch1_fungi_text_CharLevelTokenizer_document",
+    "/datasets/evo2/eukaryote_ncbi/pretraining_data/data_train_batch1_plantae_text_CharLevelTokenizer_document",
+    "/datasets/evo2/eukaryote_ncbi/pretraining_data/data_train_batch1_chromista_text_CharLevelTokenizer_document",
+    "/datasets/evo2/eukaryote_ncbi/pretraining_data/data_train_batch1_protista_text_CharLevelTokenizer_document",
+    ],
+
+  # note no hg38
+  "valid-data-paths": [
+    "/datasets/evo2/metagenomics/pretraining_data_metagenomics/data_metagenomics_valid_text_CharLevelTokenizer_document",
+    "/datasets/evo2/gtdb_imgpr/pretraining_data_gtdb_imgpr/data_gtdb_imgpr_valid_text_CharLevelTokenizer_document",
+    "/datasets/evo2/imgvr/pretraining_data_imgvr/data_imgvr_valid_text_CharLevelTokenizer_document",
+    "/datasets/evo2/ncrna/pretraining_data_ncrna/data_ncrna_valid_text_CharLevelTokenizer_document",
+    "/datasets/evo2/mrna_splice/pretraining_data_mrna_splice/data_mrna_splice_valid_text_CharLevelTokenizer_document",
+    "/datasets/evo2/promoters/pretraining_data_promoters/data_promoters_valid_text_CharLevelTokenizer_document",
+    "/datasets/evo2/eukaryote_ncbi/pretraining_data/data_valid_batch1_animalia_text_CharLevelTokenizer_document",
+    "/datasets/evo2/eukaryote_ncbi/pretraining_data/data_valid_batch1_fungi_text_CharLevelTokenizer_document",
+    "/datasets/evo2/eukaryote_ncbi/pretraining_data/data_valid_batch1_plantae_text_CharLevelTokenizer_document",
+    "/datasets/evo2/eukaryote_ncbi/pretraining_data/data_valid_batch1_chromista_text_CharLevelTokenizer_document",
+    "/datasets/evo2/eukaryote_ncbi/pretraining_data/data_valid_batch1_protista_text_CharLevelTokenizer_document",
+    ],
+
+  # note no hg38
+  "test-data-paths": [
+    "/datasets/evo2/metagenomics/pretraining_data_metagenomics/data_metagenomics_test_text_CharLevelTokenizer_document",
+    "/datasets/evo2/gtdb_imgpr/pretraining_data_gtdb_imgpr/data_gtdb_imgpr_test_text_CharLevelTokenizer_document",
+    "/datasets/evo2/imgvr/pretraining_data_imgvr/data_imgvr_test_text_CharLevelTokenizer_document",
+    "/datasets/evo2/ncrna/pretraining_data_ncrna/data_ncrna_test_text_CharLevelTokenizer_document",
+    "/datasets/evo2/mrna_splice/pretraining_data_mrna_splice/data_mrna_splice_test_text_CharLevelTokenizer_document",
+    "/datasets/evo2/promoters/pretraining_data_promoters/data_promoters_test_text_CharLevelTokenizer_document",
+    "/datasets/evo2/eukaryote_ncbi/pretraining_data/data_test_batch1_animalia_text_CharLevelTokenizer_document",
+    "/datasets/evo2/eukaryote_ncbi/pretraining_data/data_test_batch1_fungi_text_CharLevelTokenizer_document",
+    "/datasets/evo2/eukaryote_ncbi/pretraining_data/data_test_batch1_plantae_text_CharLevelTokenizer_document",
+    "/datasets/evo2/eukaryote_ncbi/pretraining_data/data_test_batch1_chromista_text_CharLevelTokenizer_document",
+    "/datasets/evo2/eukaryote_ncbi/pretraining_data/data_test_batch1_protista_text_CharLevelTokenizer_document",
+    ],
+"train-data-weights": [
+  0.09, 0.15, 0.017, 0.003, 0.02, 0.09, 0.0002, 0.05625, 0.01, 0.010725, 0.00075, 
+  0.001,
+  ],
+  "test-data-weights": [
+  0.09, 0.15, 0.017, 0.02, 0.09, 0.0002, 0.05625, 0.01, 0.010725, 0.00075, 
+  0.001,
+  ],
+  "valid-data-weights": [
+  0.09, 0.15, 0.017, 0.02, 0.09, 0.0002, 0.05625, 0.01, 0.010725, 0.00075, 
+  0.001,
+  ],
+  "checkpoint_validation_with_forward_pass": False,
+  # "use_wandb": false,
+  "wandb_host": "https://api.wandb.ai",
+  "wandb_project": "evo2"
+}

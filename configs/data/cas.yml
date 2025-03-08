@@ -1,0 +1,11 @@
+{
+  "train-data-paths": ["/large_experiments/brianhie/dna-gen/cas/finetuning_data_cas/data_cas_train_text_CharLevelTokenizer_document"],
+  "test-data-paths": ["/large_experiments/brianhie/dna-gen/cas/finetuning_data_cas/data_cas_test_text_CharLevelTokenizer_document"],
+  "valid-data-paths": ["/large_experiments/brianhie/dna-gen/cas/finetuning_data_cas/data_cas_valid_text_CharLevelTokenizer_document"],
+  "test-data-weights": [1.],
+  "valid-data-weights": [1.],
+  "checkpoint_validation_with_forward_pass": False,
+  "use_wandb": True,
+  "wandb_host": "https://api.wandb.ai",
+  "wandb_project": "dna-gen"
+}

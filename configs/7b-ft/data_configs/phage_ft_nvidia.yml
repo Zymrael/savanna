@@ -1,0 +1,25 @@
+{
+  "train-data-paths": [
+    '/data/phage/tokenized/finetune_data_phage_training_text_CharLevelTokenizer_document',
+    ],
+
+  # note no hg38
+  "valid-data-paths": [
+    '/data/phage/tokenized/finetune_data_phage_validation_text_CharLevelTokenizer_document',
+    ],
+
+  # note no hg38
+  "test-data-paths": [
+    '/data/phage/tokenized/finetune_data_phage_test_text_CharLevelTokenizer_document',
+    ],
+  "train-data-weights": [
+  1
+  ],
+  "test-data-weights": [
+  1
+  ],
+  "valid-data-weights": [
+  1
+  ],
+  "checkpoint_validation_with_forward_pass": False,
+}

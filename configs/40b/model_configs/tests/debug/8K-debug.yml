@@ -1,0 +1,208 @@
+
+
+# Needed for continuined pretraining from a 40b checkpoint without interleaving
+interleave_projections: false
+#load: /lustre/fs01/portfolios/dir/projects/dir_arc/evo/checkpoints/40b-train-n256-v2/40b_train_v2/202410271619
+
+# Training
+train-iters: 100000  # 11e12 / (8192 * 256 * 8)
+lr-decay-iters: 100000
+
+# Loss
+to_upper: normalized_weighted
+mask_loss_control_tags: true
+lowercase_loss_reweighting: 0.1
+
+# Checkpointing
+checkpoint-factor: 200
+save_retain_interval: 2000
+keep-last-n-checkpoints: 10
+
+# IMPORTANT: needed to stabilize training at 1k+ gpus
+recycle_events: true
+disable_gc: true
+gc_collect_generation: 2
+prealloc_mem: false
+
+# Logging
+use_wandb: true
+print_mem_alloc_stats: false
+log_memory_stats: true
+log_memory_alloc_counts: false
+
+# MP / PP config
+pipe_parallel_size: 0
+model_parallel_size: 8
+sequence_parallel: true
+
+zero_optimization:
+  stage: 3
+  prefetch_bucket_size: 500000000
+  max_live_parameters: 1000000000
+  allgather_partitions: true
+  allgather_bucket_size: 500000000
+  overlap_comm: true
+  reduce_scatter: true
+  reduce_bucket_size: 500000000
+  contiguous_gradients: true
+  cpu_offload: false
+  param_persistence_threshold: 0
+
+# Batch sizing
+train_micro_batch_size_per_gpu: 8
+gradient_accumulation_steps: 1
+
+# Activation checkpointing
+checkpoint-activations: true
+checkpoint-num-layers: 2
+
+# Checkpointing
+
+
+zero_use_leaf_modules: false
+zero_leaf_modules: [ParallelSequenceMixer, ParallelGLU]
+
+zero_use_mics: false
+make_vocab_size_divisible_by: 8
+num_layers: 50
+hidden_size: 8192
+num_attention_heads: 64
+num_groups_hyena: 8192
+num_groups_hyena_medium: 512
+num_groups_hyena_short: 512
+num_groups_hyena_mlp: 512
+operator-config:
+  - [['hyena_se'], 1]  # Layer 1
+  - [['hyena_mr'], 1] # Layer 2
+  - [['hyena'], 1]            # Layer 3
+  - [['flash_v2'], 1]          # Layer 4
+  - [['hyena_se'], 1]  # Layer 5
+  - [['hyena_mr'], 1] # Layer 6
+  - [['hyena'], 1]            # Layer 7
+  - [['hyena_se'], 1]  # Layer 8
+  - [['hyena_mr'], 1] # Layer 9
+  - [['hyena'], 1]            # Layer 10
+  - [['flash_v2'], 1]          # Layer 11
+  - [['hyena_se'], 1]  # Layer 12
+  - [['hyena_mr'], 1] # Layer 13
+  - [['hyena'], 1]            # Layer 14
+  - [['hyena_se'], 1]  # Layer 15
+  - [['hyena_mr'], 1] # Layer 16
+  - [['hyena'], 1]            # Layer 17
+  - [['flash_v2'], 1]          # Layer 18
+  - [['hyena_se'], 1]  # Layer 19
+  - [['hyena_mr'], 1] # Layer 20
+  - [['hyena'], 1]            # Layer 21
+  - [['hyena_se'], 1]  # Layer 22
+  - [['hyena_mr'], 1] # Layer 23
+  - [['hyena'], 1]            # Layer 24
+  - [['flash_v2'], 1]          # Layer 25
+  - [['hyena_se'], 1]  # Layer 26
+  - [['hyena_mr'], 1] # Layer 27
+  - [['hyena'], 1]            # Layer 28
+  - [['hyena_se'], 1]  # Layer 29
+  - [['hyena_mr'], 1] # Layer 30
+  - [['hyena'], 1]            # Layer 31
+  - [['flash_v2'], 1]          # Layer 32
+  - [['hyena_se'], 1]  # Layer 33
+  - [['hyena_mr'], 1] # Layer 34
+  - [['hyena'], 1]            # Layer 35
+  - [['flash_v2'], 1]          # Layer 36  
+  - [['hyena_se'], 1]  # Layer 37
+  - [['hyena_mr'], 1] # Layer 38
+  - [['hyena'], 1]            # Layer 39
+  - [['hyena_se'], 1]  # Layer 40
+  - [['hyena_mr'], 1] # Layer 41
+  - [['hyena'], 1]            # Layer 42
+  - [['flash_v2'], 1]          # Layer 43
+  - [['hyena_se'], 1]  # Layer 44
+  - [['hyena_mr'], 1] # Layer 45
+  - [['hyena'], 1]            # Layer 46
+  - [['hyena_se'], 1]  # Layer 47
+  - [['hyena_mr'], 1] # Layer 48
+  - [['hyena'], 1]            # Layer 49
+  - [['flash_v2'], 1]          # Layer 50
+
+# These kernels are not used
+use_cgcg: false
+use_cgcg_short: false
+use_cgcg_mlp: false
+
+# Tune to target sequence length e.g., 8192
+seq_length: 8192
+max_position_embeddings: 8192
+
+hyena_mr_len: 128  # default is null
+log_attn_norms: false
+pos_emb: rotary
+rotary_emb_base: 1000000
+rotary_pct: 1
+prenorm: true
+postnorm: false
+pre_mlp_norm: true
+outer_mlp_norm: false
+no_weight_tying: false
+gpt_j_residual: false
+normalize_hyena_filters: false
+short-conv-L: 3
+hyena_filter_fast_decay: 0.3
+hyena_filter_slow_decay: 1.2
+hyena_filter_w: 14
+hyena_filter_cls: implicit_modal
+hyena_medium_filter_cls: explicit_single_decay
+explicit_filter_decay_preset: weak
+hyena_filter_order: 16
+hyena_filter_wd: 0.0
+use_fast_heads: false
+use_slow_heads: false
+use-hyena-filter: true
+output_layer_parallelism: column
+bias_dropout_fusion: false
+norm: rmsnorm
+rms_norm_epsilon: 1.0e-6
+identity_mlp: false
+activation: gelu
+mlp_type: llama
+scaled-upper-triang-masked-softmax-fusion: true
+bias-gelu-fusion: false
+init_method: small_init
+output_layer_init_method: wang_init
+optimizer:
+  type: Adam
+  params:
+    lr: 0.0002
+    betas: [0.9, 0.95]
+    eps: 1.0e-8
+min_lr: 2.0e-5
+
+data-impl: mmap
+
+partition-activations: false
+synchronize-each-layer: false
+gradient_clipping: 1.0
+weight-decay: 0.1
+hidden-dropout: 0.0
+attention-dropout: 0.0
+precision: bfloat16
+bf16:
+  enabled: true
+distributed-backend: nccl
+lr-decay-style: cosine
+warmup: 0.015
+
+eval-interval: 200
+eval-iters: 20
+log-interval: 5
+steps_per_print: 5
+wall_clock_breakdown: false
+
+tokenizer_type: CharLevelTokenizer # Assuming this is a valid identifier
+use_fp8_input_projections: true
+use_fp8_output_projections: true
+use_fp8_mlp_projections: true
+use_fp8_norm: true
+checkpoint_strict_load: false
+make_gated_mlp_multiple_of: 128
+materialize_attn_mask: false  # default false, to save memory
+fast_conv_proj: true
+hyena_se_len: 7

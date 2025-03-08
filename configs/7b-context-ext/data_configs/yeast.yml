@@ -1,0 +1,25 @@
+{
+  "train-data-paths": [
+    "/data/fungi_ft_data/fungi_ft_train_text_CharLevelTokenizer_document",
+  ],
+  "per-ds-valid-data-paths": [
+    "/data/fungi_ft_data/fungi_ft_valid_text_CharLevelTokenizer_document",
+  ],
+  "valid-data-paths": [
+    "/data/fungi_ft_data/fungi_ft_valid_text_CharLevelTokenizer_document",
+  ],
+  "test-data-paths": [
+    "/data/fungi_ft_data/fungi_ft_test_text_CharLevelTokenizer_document",
+  ],
+  "train-data-weights": [
+    1.0
+  ],
+  "test-data-weights": [
+    1.0
+  ],
+  "valid-data-weights": [
+    1.0
+  ],
+  "checkpoint_validation_with_forward_pass": False,
+
+}

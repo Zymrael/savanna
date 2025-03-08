@@ -1,0 +1,24 @@
+{
+  "train-data-paths": [
+    "/data/long_gtdb_v220/gtdbv220_longcontext_pretraining_data/data_gtdb_stitched_train_text_CharLevelTokenizer_document",
+  ],
+  "per-ds-valid-data-paths": [
+    "/data/long_gtdb_v220/gtdbv220_longcontext_pretraining_data/data_gtdb_stitched_valid_text_CharLevelTokenizer_document",
+  ],
+  "valid-data-paths": [
+    "/data/long_gtdb_v220/gtdbv220_longcontext_pretraining_data/data_gtdb_stitched_valid_text_CharLevelTokenizer_document",
+  ],
+  "test-data-paths": [
+    "/data/long_gtdb_v220/gtdbv220_longcontext_pretraining_data/data_gtdb_stitched_test_text_CharLevelTokenizer_document",
+  ],
+  "train-data-weights": [
+    1.0
+  ],
+  "test-data-weights": [
+    1.0
+  ],
+  "valid-data-weights": [
+    1.0
+  ],
+  "checkpoint_validation_with_forward_pass": False,
+}

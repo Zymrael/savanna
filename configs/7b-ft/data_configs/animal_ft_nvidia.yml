@@ -1,0 +1,45 @@
+{
+  "train-data-paths": [
+    "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_train_batch1_animalia_text_CharLevelTokenizer_document",
+    "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_train_batch2_animalia_text_CharLevelTokenizer_document",
+    "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_train_batch3_animalia_text_CharLevelTokenizer_document",
+    "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_train_batch4_animalia_text_CharLevelTokenizer_document",
+    "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_train_batch5_animalia_text_CharLevelTokenizer_document",
+    "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_train_batch6_animalia_text_CharLevelTokenizer_document",
+    "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_train_batch7_animalia_text_CharLevelTokenizer_document",
+    "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_train_batch8_animalia_text_CharLevelTokenizer_document"
+    ],
+  "per-ds-valid-data-paths": [
+    "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_valid_batch1_animalia_text_CharLevelTokenizer_document"
+    ],
+  "valid-data-paths": [
+    "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_valid_batch1_animalia_text_CharLevelTokenizer_document",
+    "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_valid_batch2_animalia_text_CharLevelTokenizer_document",
+    "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_valid_batch3_animalia_text_CharLevelTokenizer_document",
+    "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_valid_batch4_animalia_text_CharLevelTokenizer_document",
+    "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_valid_batch5_animalia_text_CharLevelTokenizer_document",
+    "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_valid_batch6_animalia_text_CharLevelTokenizer_document",
+    "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_valid_batch7_animalia_text_CharLevelTokenizer_document",
+    "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_valid_batch8_animalia_text_CharLevelTokenizer_document"
+    ],
+  "test-data-paths": [
+    "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_test_batch1_animalia_text_CharLevelTokenizer_document",
+    "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_test_batch2_animalia_text_CharLevelTokenizer_document",
+    "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_test_batch3_animalia_text_CharLevelTokenizer_document",
+    "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_test_batch4_animalia_text_CharLevelTokenizer_document",
+    "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_test_batch5_animalia_text_CharLevelTokenizer_document",
+    "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_test_batch6_animalia_text_CharLevelTokenizer_document",
+    "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_test_batch7_animalia_text_CharLevelTokenizer_document",
+    "/data/eukaryote_ncbi/euk_ncbi_long_sequence/euk_ncbi_long_pretraining_data/data_test_batch8_animalia_text_CharLevelTokenizer_document"
+    ],
+  "train-data-weights": [
+  0.0125, 0.0125, 0.0125, 0.0125, 0.0125, 0.0125, 0.0125, 0.0125
+  ],
+  "test-data-weights": [
+  0.0125, 0.0125, 0.0125, 0.0125, 0.0125, 0.0125, 0.0125, 0.0125
+  ],
+  "valid-data-weights": [
+  0.0125, 0.0125, 0.0125, 0.0125, 0.0125, 0.0125, 0.0125, 0.0125
+  ],
+  "checkpoint_validation_with_forward_pass": False,
+}

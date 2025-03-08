@@ -1,0 +1,115 @@
+{
+  "pipe_parallel_size": 1,
+  "model_parallel_size": 1,
+  "make_vocab_size_divisible_by": 8,
+
+  "num_layers": 14,
+  "hidden_size": 704,
+  "num_attention_heads": 11, # hidden_size / num_attention_heads gives you size of each head, useful for MQA 
+  "num_heads": 704, # keep this always hidden_size
+    "operator-config": [
+      [["hyena_se"], 1], [["hyena_mr"], 1], [["hyena"], 2], 
+      [["flash_v2"], 1], 
+      [["hyena_se"], 1], [["hyena_mr"], 1], [["hyena"], 2],
+      [["hyena_se"], 1], [["hyena_mr"], 1], [["hyena"], 2], 
+      [["flash_v2"], 1]
+    ],
+  "seq_length": 8192,
+  "max_position_embeddings": 8192,
+  "hyena_mr_len": 128,  # default is null
+
+  "pos_emb": "rotary",
+  "rotary_pct": 1,
+  "prenorm": true,
+  "postnorm": false,
+  "pre_mlp_norm": true,  
+  "outer_mlp_norm": false,
+  "no_weight_tying": false,
+  "gpt_j_residual": false,
+  "normalize_hyena_filters": false,
+  "short-conv-L": 3, 
+  "hyena_filter_fast_decay": 0.3,
+  "hyena_filter_slow_decay": 1.2,
+  "hyena_filter_w": 14, 
+  "hyena_filter_cls": "implicit_complex_modal",  # long
+  # "hyena_medium_filter_cls": "implicit_complex_modal",  # medium
+  "hyena_filter_order": 16,
+  "hyena_filter_wd": 0.,
+  "use_fast_heads": false,
+  "use_slow_heads": false,
+  "use-hyena-filter": true,
+  "output_layer_parallelism": "column",
+  "bias_dropout_fusion": false,
+  "norm": "rmsnorm",
+  "rms_norm_epsilon": 1.0e-6,
+  "identity_mlp": false,
+   "mlp_type": "short_hyena",  # note, different mlp block type
+   "scaled-upper-triang-masked-softmax-fusion": true,
+   "bias-gelu-fusion": false,
+   "init_method": "small_init",
+   "output_layer_init_method": "wang_init",
+   "optimizer": {
+     "type": "Adam",
+     "params": {
+       "lr": 0.000818,
+       "betas": [0.9, 0.95],
+       "eps": 1.0e-8,
+     }
+   },
+   "min_lr": 0.0000818,
+   "zero_optimization": {
+    "stage": 1,
+    "allgather_partitions": True,
+    "allgather_bucket_size": 500000000,
+    "overlap_comm": True,
+    "reduce_scatter": True,
+    "reduce_bucket_size": 500000000,
+    "contiguous_gradients": True,
+    "cpu_offload": false
+  },
+   "train_micro_batch_size_per_gpu": 16,
+   "gradient_accumulation_steps": 1,
+   "data-impl": "mmap",
+   "checkpoint-activations": true,
+   "checkpoint-num-layers": 6,
+   "partition-activations": true,
+   "synchronize-each-layer": true,
+   "gradient_clipping": 1.0,
+   "weight-decay": 0.1,
+   "hidden-dropout": 0.0,
+   "attention-dropout": 0.0,
+   "precision": "bfloat16",
+   "bf16": {
+   "enabled": true
+    },
+   "train-iters": 10000,
+   "lr-decay-iters": 10000,
+   "distributed-backend": "nccl",
+   "lr-decay-style": "cosine",
+   "warmup": 0.01,
+   "checkpoint-factor": 10000,
+   "eval-interval": 100,
+   "eval-iters": 50,
+   "log-interval": 50,
+   "steps_per_print": 50,
+   "keep-last-n-checkpoints": 1,
+   "wall_clock_breakdown": false,
+   "save": "/checkpoint/hielab/etnguyen/checkpoints/evo2/100m/100m_6h_3m_3s_2a_10k_524k_icl_short_mlp_expansion", # change this
+   "tokenizer_type": CharLevelTokenizer,   
+  #  "iteration": 200,
+  #  "use_checkpoint_lr_scheduler": True,
+   "use_fp8_linears": true,
+  #  "master_port": 29502,
+   "include": "localhost@localhost:0",
+   "num_gpus": 1,
+  #  "bidirectional": True,
+   "materialize_attn_mask": false,  # default false, to save memory
+  "fast_conv_proj": true,   
+  "hyena_se_len": 7,
+  "use_wandb": false,  
+  "to_upper": "weighted",
+  "lowercase_loss_reweighting": 0.1,
+  "hyena_mlp_len": 7,
+  "hyena_mlp_expansion_factor": 1.5,  # note the diff!
+}
+
