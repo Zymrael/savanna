@@ -1,0 +1,3 @@
+{
+  "train_micro_batch_size_per_gpu": [1, 2, 4],
+}

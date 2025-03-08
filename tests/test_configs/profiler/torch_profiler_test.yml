@@ -1,0 +1,19 @@
+# Minimal model config for MFU testing
+{
+  "train_micro_batch_size_per_gpu": 1,
+  "num_gpus": 1,
+  "num_layers": 1,
+  "hidden_size": 768,
+  "num_attention_heads": 12,
+  "operator-config": [
+      [["flash_v2"], 1], 
+    ],
+   "precision": "bfloat16",
+   "bf16": {
+   "enabled": true
+    },
+    "should_profile": true,
+    "profiler_type": "torch",
+    "profiler_schedule_active": 5 
+    
+}

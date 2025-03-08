@@ -1,0 +1,30 @@
+PyYAML
+causal-conv1d
+deepspeed
+einops
+flash-attn
+lazy_import_plus
+omegaconf
+opt-einsum
+pybind11
+regex
+requests
+scipy
+sentencepiece
+#tokenizers==4.45.0 # needed for ring attention
+tokenizers==0.20.1
+torch
+torchaudio
+torchvision
+wandb
+boto3
+arrow
+ring_flash_attn
+
+# Git repositories
+git+https://github.com/NVIDIA/TransformerEngine.git@stable
+
+# Apex - requires special installation
+# Run the following command in the apex directory:
+# pip install -v --disable-pip-version-check --no-cache-dir --no-build-isolation --config-settings "--build-option=--cpp_ext" --config-settings "--build-option=--cuda_ext" ./
+git+https://github.com/gdb/apex.git

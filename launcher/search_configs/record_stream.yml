@@ -1,0 +1,6 @@
+{
+# Run with 4 nodes / 1 GPU per node
+"patch_record_stream": true,
+"record_stream_flush_frequency": [25, 50, 100],
+"record_stream_backlog": [1, 2, 4]
+}

@@ -1,0 +1,6 @@
+{
+"cgcg_bwd_autotune": [false],
+"use_cgcg": [false, true],
+"use_cgcg_short": [false, true],
+# "use_cgcg_mlp": [false, true]
+}

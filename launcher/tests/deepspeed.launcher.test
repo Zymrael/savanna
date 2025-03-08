@@ -1,0 +1,52 @@
+#!/bin/bash
+
+# Generates SLURM batch script that runs pipeline with a mock train script that checks:
+# 1. args are parsed and passed correctly to the train script
+# 2. the distributed env is set up correctly
+# This is primarily a sanity check to ensure that the pipeline works as expected without
+# actually running training. 
+#
+# Usage:
+# From `launcher` directory
+# ./examples/args.test.sh
+# This will output: "SLURM script generated: .../$JOB_NAME/.../test.sbatch"
+# Submit and check logs: `sbatch .../$JOB_NAME/.../test.sbatch`
+
+SAVANNA_ROOT=$(realpath ..)
+TRAIN_SCRIPT=$(realpath ./tests/check_args.py)
+
+LAUNCHER=deepspeed
+
+JOB_NAME=$(basename "${BASH_SOURCE[0]}" .sh)
+CONTAINER="/lustre/fs01/portfolios/dir/projects/dir_arc/heimdall/scalable_container_images/nvidia_evo2_efa_latest.sqsh"
+NUM_NODES=4
+NUM_GPUS=1
+PARTITION=pool0
+ACCOUNT=dir_arc
+
+DATA_CONFIG=$SAVANNA_ROOT/configs/launcher-test/data_configs/opengenome.yml
+MODEL_CONFIG=$SAVANNA_ROOT/configs/launcher-test/model_configs/regression_test.yml
+CONTAINER_MOUNTS="$DATA_DIR:/data,$SAVANNA_ROOT:$SAVANNA_ROOT"
+
+OUTPUT_DIR=$SAVANNA_ROOT/launcher/$JOB_NAME
+
+MEM="10G"
+CPUS_PER_TASK="4"
+
+CMD="python generate_distributed_launcher.py \
+$JOB_NAME \
+--launcher $LAUNCHER \
+--partition $PARTITION \
+--account $ACCOUNT \
+--container $CONTAINER \
+--data-config $DATA_CONFIG \
+--model-config $MODEL_CONFIG \
+--num-nodes $NUM_NODES \
+--num-gpus $NUM_GPUS \
+--output-dir $OUTPUT_DIR \
+--mem $MEM \
+--cpus-per-task $CPUS_PER_TASK \
+--train-script $TRAIN_SCRIPT"
+
+echo $CMD
+eval $CMD

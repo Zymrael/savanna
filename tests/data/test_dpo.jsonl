@@ -1,0 +1,5 @@
+{"text_accept": "0AAA", "text_reject": "0TTTT", "ref_logprob_accept": -0.5, "ref_logprob_reject": -1.5}
+{"text_accept": "0CCCCC", "text_reject": "0GG", "ref_logprob_accept": -0.2, "ref_logprob_reject": -1.3}
+{"text_accept": "0GGGGGG", "text_reject": "0AAAAAAAAAA", "ref_logprob_accept": -0.5, "ref_logprob_reject": -0.555555555555555555555555555555}
+{"text_accept": "0CCCCCCCCCCC", "text_reject": "0TTTTTT", "ref_logprob_accept": -0.1, "ref_logprob_reject": -4.2}
+{"text_accept": "0TTTTTTT", "text_reject": "0CCCCCCC", "ref_logprob_accept": -0.3, "ref_logprob_reject": -81.2}

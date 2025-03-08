@@ -1,0 +1,144 @@
+attention-dropout: 0.0
+bf16:
+  enabled: true
+bias-gelu-fusion: false
+bias_dropout_fusion: false
+checkpoint-activations: true
+checkpoint-factor: 10000
+checkpoint-num-layers: 4
+data-impl: mmap
+distributed-backend: nccl
+eval-interval: 100
+eval-iters: 5
+fast_conv_proj: true
+gpt_j_residual: false
+gradient_accumulation_steps: 2
+gradient_clipping: 1.0
+hidden-dropout: 0.0
+hidden_size: 1024
+hyena_filter_cls: implicit_complex_modal
+hyena_filter_fast_decay: 0.3
+hyena_filter_order: 16
+hyena_filter_slow_decay: 1.2
+hyena_filter_w: 14
+hyena_filter_wd: 0.0
+hyena_medium_conv_len: 128
+hyena_medium_filter_cls: explicit_single_decay
+hyena_short_conv_len: 7
+identity_mlp: false
+init_method: small_init
+keep-last-n-checkpoints: 1
+log-interval: 5
+log_attn_norms: false
+lowercase_loss_reweighting: 0.1
+lr-decay-iters: 10
+lr-decay-style: cosine
+make_vocab_size_divisible_by: 8
+master_port: 29502
+materialize_attn_mask: false
+max_position_embeddings: 8192
+min_lr: 6.0e-05
+mlp_type: short_hyena
+model_parallel_size: 4
+no_weight_tying: false
+norm: rmsnorm
+normalize_hyena_filters: false
+num_attention_heads: 16
+num_groups_hyena: 1024
+num_groups_hyena_medium: 64
+num_groups_hyena_mlp: 64
+num_groups_hyena_short: 64
+num_layers: 24
+operator-config:
+- - - hyena_short_conv
+  - 1
+- - - hyena_medium_conv
+  - 1
+- - - hyena
+  - 2
+- - - hyena_short_conv
+  - 1
+- - - hyena_medium_conv
+  - 1
+- - - hyena
+  - 1
+- - - hyena_short_conv
+  - 1
+- - - hyena_medium_conv
+  - 1
+- - - hyena
+  - 2
+- - - flash_v2
+  - 1
+- - - hyena_short_conv
+  - 1
+- - - hyena_medium_conv
+  - 1
+- - - hyena
+  - 2
+- - - hyena_short_conv
+  - 1
+- - - hyena_medium_conv
+  - 1
+- - - hyena
+  - 1
+- - - hyena_short_conv
+  - 1
+- - - hyena_medium_conv
+  - 1
+- - - hyena
+  - 2
+- - - flash_v2
+  - 1
+optimizer:
+  params:
+    betas:
+    - 0.9
+    - 0.95
+    eps: 1.0e-08
+    lr: 0.0006
+  type: Adam
+outer_mlp_norm: false
+output_layer_init_method: wang_init
+output_layer_parallelism: column
+partition-activations: true
+pipe_parallel_size: 0
+pos_emb: rotary
+postnorm: false
+pre_mlp_norm: true
+precision: bfloat16
+prenorm: true
+profiler_type: nsys
+rms_norm_epsilon: 1.0e-06
+rotary_pct: 1
+seq_length: 8192
+short-conv-L: 3
+should_profile: true
+steps_per_print: 5
+synchronize-each-layer: false
+to_upper: weighted
+tokenizer_type: CharLevelTokenizer
+train-iters: 10
+train_micro_batch_size_per_gpu: 32
+use-hyena-filter: true
+use_fast_heads: false
+use_fp8_hyena_mlp_input_projections: true
+use_fp8_hyena_mlp_output_projections: true
+use_fp8_input_projections: true
+use_fp8_linears: true
+use_fp8_output_projections: true
+use_slow_heads: false
+wall_clock_breakdown: false
+warmup: 0.01
+weight-decay: 0.1
+zero_optimization:
+  allgather_bucket_size: 500000000
+  allgather_partitions: true
+  contiguous_gradients: true
+  cpu_offload: false
+  overlap_comm: true
+  reduce_bucket_size: 500000000
+  reduce_scatter: true
+  stage: 0
+num_gpus: 4
+include: localhost@localhost:0,1,2,3  

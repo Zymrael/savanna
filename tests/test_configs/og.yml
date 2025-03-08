@@ -1,0 +1,8 @@
+{
+  "train-data-paths": ["/large_storage/hielab/brianhie/pretraining_data/data_gtdb_imgpr_train_text_CharLevelTokenizer_document"],
+  "test-data-paths": ["/large_storage/hielab/brianhie/pretraining_data/data_gtdb_imgpr_test_text_CharLevelTokenizer_document"],
+  "valid-data-paths": ["/large_storage/hielab/brianhie/pretraining_data/data_gtdb_imgpr_valid_text_CharLevelTokenizer_document"],
+  "test-data-weights": [1.],
+  "valid-data-weights": [1.],
+  "checkpoint_validation_with_forward_pass": False,
+}

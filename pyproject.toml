@@ -1,0 +1,8 @@
+[tool.ruff]
+ignore = [
+    "E731", # Ignore lambda fn such as grid[lambda META: setup_grid(META)] used in triton kernels 
+    "E402", #imports not in order (i.e., when appending paths to sys before importing dependent packages
+]
+
+[tool.black]
+line-length = 110

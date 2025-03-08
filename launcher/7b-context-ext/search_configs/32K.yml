@@ -1,0 +1,20 @@
+{
+  'sequence_parallel': [true],
+  'partition-activations': [false],
+
+  'train_micro_batch_size_per_gpu': [1],
+  'model_parallel_size': [2],
+  'checkpoint-num-layers': [6],
+  'zero_optimization':
+    {
+      'stage': [1],
+      'allgather_partitions': True,
+      'allgather_bucket_size': 500000000,
+      'overlap_comm': True,
+      'reduce_scatter': True,
+      'reduce_bucket_size': [2500000000, 5000000000],
+      'contiguous_gradients': True,
+      'cpu_offload': false,
+    },
+  'gradient_accumulation_steps': [1],
+}
