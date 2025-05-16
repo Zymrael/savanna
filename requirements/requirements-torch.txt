@@ -12,8 +12,8 @@ requests
 scipy
 sentencepiece
 tokenizers==0.20.1
-torchaudio
-torchvision
+torchaudio==2.6.0
+torchvision==0.21.0
 wandb
 boto3
 arrow
