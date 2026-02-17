@@ -318,9 +318,9 @@ def update_data_loading_config(global_config):
     ckpt_dir = f"{global_config.load}/{tag}"
     # Rank 0 model states should always be saved.
     if global_config.zero_optimization["stage"] > 1:
-        state_dict = torch.load(f"{ckpt_dir}/zero_pp_rank_0_mp_rank_00_model_states.pt", map_location=torch.device("cpu"))
+        state_dict = torch.load(f"{ckpt_dir}/zero_pp_rank_0_mp_rank_00_model_states.pt", map_location=torch.device("cpu"), weights_only=False)
     else:
-        state_dict = torch.load(f"{ckpt_dir}/mp_rank_00_model_states.pt", map_location=torch.device("cpu"))
+        state_dict = torch.load(f"{ckpt_dir}/mp_rank_00_model_states.pt", map_location=torch.device("cpu"), weights_only=False)
 
     # Set previous data loading values.
     if "data_loading" in state_dict:
@@ -1032,6 +1032,23 @@ def get_model(global_config, use_cache=False):
             if "soft_embedding" not in name:
                 param.requires_grad = False
 
+    ### LoRA stuff ###
+    if global_config.lora is not None and global_config.lora.get("enabled", False):
+        from savanna.lora import apply_lora_to_model
+
+        apply_lora_to_model(model, global_config)
+        if global_config.lora.get("freeze_base_model", True):
+            modules_to_save = global_config.lora.get("modules_to_save") or []
+            for name, param in model.named_parameters():
+                # Use leaf-name matching (consistent with apply_lora_to_model) to
+                # avoid substring false positives (e.g. "norm" matching "layernorm").
+                leaf = name.rsplit(".", 1)[-1]
+                if "lora_" not in name and not any(m == leaf for m in modules_to_save):
+                    param.requires_grad = False
+        trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        total = sum(p.numel() for p in model.parameters())
+        print_rank_0(f"LoRA: {trainable:,} trainable params / {total:,} total ({100 * trainable / total:.2f}%)")
+
     if not global_config.is_pipe_parallel:
         # Export PipeParallel model to nn.Sequential model to avoid the overhead of deepspeed's pipe parallel training
         model = model.to_sequential()
@@ -1365,7 +1382,7 @@ def setup_model_and_optimizer(global_config, use_cache=False, iteration=None):
     # jeromeku: We need to take into account the case where load is provided right at start of training
     # That is, we would like to provide the same save and load dir such that the same model config can be submitted 
     # to SLURM job again for job queuing and fault tolerance tools such as NVIDIA Heimdall.
-    should_load = global_config.load is not None and (iteration > 0 or global_config.warmstart)
+    should_load = global_config.load is not None and (iteration > 0 or global_config.warmstart or global_config.finetune)
     
     if should_load:
         global_config.iteration = load_checkpoint(

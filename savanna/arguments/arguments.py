@@ -37,6 +37,7 @@ from .global_config import (
     GlobalConfigTraining,
     operator_type_CHOICES,
 )
+from .lora_config import GlobalConfigLoRA
 
 ZERO_DEFAULTS = {
     "stage": 0,
@@ -82,6 +83,7 @@ BASE_CLASSES = [
     GlobalConfigTextgen,
     GlobalConfigOther,
     GlobalConfigProfiler,
+    GlobalConfigLoRA,
 ]
 
 DEEPSPEED_ARG_CLASSES = [GlobalConfigDeepspeedRunner, GlobalConfigDeepspeedConfig]

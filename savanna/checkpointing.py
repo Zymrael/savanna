@@ -326,14 +326,26 @@ def save_ds_checkpoint(iteration, model, global_config):
     # checkpoint folder name
     tag = f"global_step{iteration}"
 
+    # LoRA: merge weights into base if save_merged is True
+    lora_cfg = getattr(global_config, "lora", None)
+    lora_enabled = lora_cfg is not None and lora_cfg.get("enabled", False)
+    save_merged = lora_enabled and lora_cfg.get("save_merged", False)
+    if save_merged:
+        from savanna.lora import merge_lora_weights, unmerge_lora_weights
+
+        merge_lora_weights(model)
+
     # save checkpoint
-    if global_config.async_save:
+    # When save_merged is True, force a blocking save to avoid a race condition:
+    # async save may still be reading model memory when we unmerge weights below.
+    use_async = global_config.async_save and not save_merged
+    if save_merged and global_config.async_save:
+        print_rank_0("LoRA: save_merged=True forces blocking save (async_save disabled for this checkpoint).")
+    if use_async:
         # print(f"SAVE_CHECKPOINT: USING ASYNC SAVE")
-        ret = model.save_checkpoint(
-            global_config.save, tag=tag, client_state=sd, async_save=global_config.async_save
-        )
+        ret = model.save_checkpoint(global_config.save, tag=tag, client_state=sd, async_save=True)
         global _checkpoint_engine
-        if global_config.async_save and _checkpoint_engine is None:
+        if _checkpoint_engine is None:
             _checkpoint_engine = ret
         if global_config.iteration % global_config.save_retain_interval == 0:
             global retain_on
@@ -345,12 +357,27 @@ def save_ds_checkpoint(iteration, model, global_config):
                 process = mp.Process(target=upload_checkpoint, args=(global_config, global_config.save, tag))
                 process.start()
 
+    # LoRA: unmerge after save if we merged, or save separate LoRA weights
+    if save_merged:
+        unmerge_lora_weights(model)
+    elif lora_enabled:
+        from savanna.lora import get_lora_state_dict
+
+        lora_sd = get_lora_state_dict(model)
+        if lora_sd:
+            save_dir = os.path.join(global_config.save, tag)
+            os.makedirs(save_dir, exist_ok=True)
+            rank = mpu.get_model_parallel_rank()
+            lora_path = os.path.join(save_dir, f"lora_mp_rank_{rank:02d}.pt")
+            torch.save(lora_sd, lora_path)
+            print_rank_0(f"LoRA: saved {len(lora_sd)} params to {lora_path}")
+
     # save config files
     if torch.distributed.get_rank() == 0 and global_config.config_files is not None:
         configs_directory = os.path.join(global_config.save, tag, "configs")
         os.makedirs(configs_directory, exist_ok=True)
         for config_filename, config_data in global_config.config_files.items():
-            with open(os.path.join(configs_directory, config_filename), "w") as f:
+            with open(os.path.join(configs_directory, config_filename), "w", encoding="utf-8") as f:
                 if isinstance(config_data, str):
                     f.write(config_data)
                 else:
@@ -386,6 +413,80 @@ def save_checkpoint(global_config, iteration, model, optimizer, lr_scheduler):
     torch.distributed.barrier()
 
 
+def _make_lora_custom_load_fn(dst_module, strict):
+    """Create a custom load function that remaps base-model checkpoint keys
+    to match the LoRA-wrapped model structure.
+
+    When LoRA wraps a module ``X``, its weight moves from ``X.weight`` to
+    ``X.base_layer.weight``.  A base-model checkpoint still has the old key
+    names, so a naive ``load_state_dict`` with ``strict=False`` silently
+    skips them, leaving the wrapped layers with random weights.
+
+    This function builds a key mapping from the destination model and remaps
+    the source state dict before loading.
+    """
+    from savanna.lora import LoRAColumnParallelLinear, LoRARowParallelLinear, LoRATELinear
+
+    lora_classes = (LoRAColumnParallelLinear, LoRARowParallelLinear, LoRATELinear)
+
+    # Build set of LoRA-wrapped module prefixes (relative to dst_module)
+    lora_prefixes = set()
+    for name, mod in dst_module.named_modules():
+        if isinstance(mod, lora_classes):
+            lora_prefixes.add(name + ".")
+
+    def custom_load_fn(src, dst):
+        if not lora_prefixes:
+            dst.load_state_dict(src, strict=strict)
+            return
+
+        remapped = {}
+        remap_count = 0
+        for key, value in src.items():
+            new_key = key
+            for prefix in lora_prefixes:
+                if key.startswith(prefix) and ".base_layer." not in key:
+                    # Insert "base_layer." after the LoRA module prefix
+                    suffix = key[len(prefix):]
+                    new_key = prefix + "base_layer." + suffix
+                    remap_count += 1
+                    break
+            remapped[new_key] = value
+
+        if remap_count > 0:
+            print_rank_0(f"LoRA checkpoint load: remapped {remap_count} keys to base_layer.*")
+
+        # Handle size mismatches (e.g. pad_mlp_weights padding, seq_length
+        # changes for Hyena filters) by manually copying with padding/truncation
+        # before calling load_state_dict, which would otherwise raise.
+        dst_sd = dst.state_dict()
+        size_mismatch_keys = []
+        for key in list(remapped.keys()):
+            if key in dst_sd and isinstance(remapped[key], torch.Tensor) and remapped[key].shape != dst_sd[key].shape:
+                src_tensor = remapped.pop(key)
+                dst_tensor = dst_sd[key]
+                # Copy overlapping region (handles both padding and truncation)
+                slices = tuple(slice(0, min(s, d)) for s, d in zip(src_tensor.shape, dst_tensor.shape))
+                dst_tensor.zero_()
+                dst_tensor[slices].copy_(src_tensor[slices])
+                size_mismatch_keys.append(key)
+        if size_mismatch_keys:
+            print_rank_0(
+                f"LoRA checkpoint load: handled {len(size_mismatch_keys)} size-mismatched keys "
+                f"via padded/truncated copy (first 5: {size_mismatch_keys[:5]})"
+            )
+
+        missing, unexpected = dst.load_state_dict(remapped, strict=False)
+        # LoRA params (lora_A, lora_B) will be "missing" from a base checkpoint — that's expected
+        lora_missing = [k for k in missing if "lora_" not in k and k not in size_mismatch_keys]
+        if lora_missing:
+            print_rank_0(f"WARNING: {len(lora_missing)} non-LoRA keys missing after remapped load: {lora_missing[:10]}")
+        if unexpected:
+            print_rank_0(f"WARNING: {len(unexpected)} unexpected keys in checkpoint: {unexpected[:10]}")
+
+    return custom_load_fn
+
+
 def load_checkpoint(global_config, model, optimizer, lr_scheduler, inference=False, iteration=None):
     """Load a model checkpoint and return the iteration."""
     iteration = global_config.iteration if iteration is None else iteration
@@ -408,9 +509,20 @@ def load_checkpoint(global_config, model, optimizer, lr_scheduler, inference=Fal
                 print(f"rank{rank} - LOAD_CHECKPOINT: Loading checkpoint with tag {tag}")
         else:
             tag = None
-            
+
         if rank == 0:
             print(f"rank{rank} - LOAD_CHECKPOINT: Loading checkpoint from {global_config.load} with tag {tag}, warmstart={global_config.warmstart}")
+
+        # When finetuning a base checkpoint into a LoRA model, the checkpoint
+        # keys won't have 'base_layer.' but the model expects them.  Use a
+        # custom load function to remap keys.
+        lora_cfg = getattr(global_config, "lora", None)
+        lora_enabled = lora_cfg is not None and lora_cfg.get("enabled", False)
+        custom_load_fn = None
+        if lora_enabled and global_config.finetune:
+            custom_load_fn = _make_lora_custom_load_fn(
+                model.module, strict=global_config.checkpoint_strict_load
+            )
 
         checkpoint_name, state_dict = model.load_checkpoint(
             global_config.load,
@@ -419,6 +531,7 @@ def load_checkpoint(global_config, model, optimizer, lr_scheduler, inference=Fal
             load_module_only=not load_optim_and_scheduler,
             tag=tag,
             load_module_strict=global_config.checkpoint_strict_load,
+            custom_load_fn=custom_load_fn,
         )
 
         if checkpoint_name is None:
@@ -509,6 +622,25 @@ def load_checkpoint(global_config, model, optimizer, lr_scheduler, inference=Fal
                 "exiting ...".format(checkpoint_name)
             )
             sys.exit()
+
+    # LoRA: load separate LoRA weights if present
+    lora_cfg = getattr(global_config, "lora", None)
+    if lora_cfg is not None and lora_cfg.get("enabled", False) and not lora_cfg.get("save_merged", False):
+        rank = mpu.get_model_parallel_rank()
+        # Determine the checkpoint directory for this tag
+        if tag is not None:
+            lora_path = os.path.join(global_config.load, tag, f"lora_mp_rank_{rank:02d}.pt")
+        else:
+            lora_path = None
+
+        if lora_path is not None and os.path.exists(lora_path):
+            from savanna.lora import load_lora_state_dict
+
+            lora_sd = torch.load(lora_path, map_location="cpu", weights_only=True)
+            load_lora_state_dict(model, lora_sd)
+            print_rank_0(f"LoRA: loaded {len(lora_sd)} params from {lora_path}")
+        else:
+            print_rank_0("LoRA: no saved LoRA weights found, starting with zero-initialized B (no-op).")
 
     torch.distributed.barrier()
     if mpu.get_data_parallel_rank() == 0:

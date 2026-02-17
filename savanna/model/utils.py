@@ -102,11 +102,31 @@ def get_params_for_weight_decay_optimization(module, global_config):
         # only return a single param group
         # with onebitadam, we want to minimize the calls to compressed_allreduce. Every param group calls it once.
         # to avoid this, only use a single param group when weight decay is off.
-        return [no_weight_decay_params]
+        param_groups = [no_weight_decay_params]
     elif medium_hyena_params is not None:
-        return weight_decay_params, no_weight_decay_params, medium_hyena_params
+        param_groups = [weight_decay_params, no_weight_decay_params, medium_hyena_params]
+    else:
+        param_groups = [weight_decay_params, no_weight_decay_params]
 
-    return weight_decay_params, no_weight_decay_params
+    # If LoRA is enabled with a separate LR, extract LoRA params into their own group
+    lora_cfg = getattr(global_config, "lora", None)
+    if lora_cfg is not None and lora_cfg.get("enabled", False):
+        lora_lr = lora_cfg.get("lora_lr")
+        lora_wd = lora_cfg.get("lora_weight_decay", 0.0)
+        if lora_lr is not None:
+            lora_params = {"params": [], "lr": lora_lr, "weight_decay": lora_wd}
+            for group in param_groups:
+                remaining = []
+                for p in group["params"]:
+                    if getattr(p, "_is_lora_param", False):
+                        lora_params["params"].append(p)
+                    else:
+                        remaining.append(p)
+                group["params"] = remaining
+            if lora_params["params"]:
+                param_groups.append(lora_params)
+
+    return param_groups
 
 
 def exists(x):
@@ -120,6 +140,29 @@ class Lambda(torch.nn.Module):
 
     def forward(self, x):
         return self.func(x)
+
+
+def _ensure_requires_grad(args):
+    """Enable requires_grad on the first floating-point tensor in *args*.
+
+    DeepSpeed's reentrant activation-checkpoint (CheckpointFunction.apply) only
+    attaches a grad_fn to its outputs when at least one input tensor has
+    requires_grad=True.  When the base model is frozen (e.g. LoRA), the hidden
+    states flowing out of the embedding layer have no grad_fn and therefore
+    requires_grad=False, which silently breaks the backward graph.
+
+    Calling this on the unpacked tuple of checkpoint inputs is sufficient —
+    autograd only needs *one* tensor to require grad for the whole
+    CheckpointFunction node to participate in the backward pass.
+    """
+    found = False
+    result = []
+    for a in args:
+        if not found and isinstance(a, torch.Tensor) and a.is_floating_point() and not a.requires_grad:
+            a = a.detach().requires_grad_(True)
+            found = True
+        result.append(a)
+    return tuple(result)
 
 
 class SequentialWrapper(torch.nn.Module):
@@ -211,6 +254,11 @@ class SequentialWrapper(torch.nn.Module):
                     x = (x,)
 
                 if self._is_checkpointable(funcs):
+                    # Ensure at least one input tensor requires grad for the
+                    # reentrant checkpoint to create a backward graph.  Without
+                    # this, frozen-base-model setups (e.g. LoRA) produce outputs
+                    # with no grad_fn and backward() fails.
+                    x = _ensure_requires_grad(x)
                     x = self.activation_checkpoint_func(exec_range_func(start_idx, end_idx), *x)
                 else:
                     x = exec_range_func(start_idx, end_idx)(*x)
